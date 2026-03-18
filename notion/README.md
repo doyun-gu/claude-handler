@@ -17,7 +17,7 @@ Works for software projects, lecture notes, research, or anything in your dev di
 
 ```bash
 # 1. Clone
-git clone https://github.com/YOUR_USERNAME/claude-handler.git ~/claude-handler
+git clone https://github.com/doyun-gu/claude-handler.git ~/claude-handler
 
 # 2. Connect Claude Code to Notion
 cd ~/claude-handler/notion
@@ -99,6 +99,10 @@ cd ~/claude-handler && claude --dangerously-skip-permissions -p "Read notion/INI
 # Check: tmux attach -t notion
 ```
 
+## Author
+
+Created by [Doyun Gu](https://github.com/doyun-gu)
+
 ## License
 
-MIT
+MIT — see [LICENSE](../LICENSE)
