@@ -6,7 +6,7 @@ A reusable framework that turns Claude Code into a Technical Co-Founder. Install
 
 - **Technical Co-Founder persona** — Claude pushes back on bad ideas, thinks product-first, and ships incrementally
 - **Smart onboarding** — auto-detects existing projects (tech stack, git history, file structure) and only asks what it can't figure out
-- **Personalisation** — `/cofounder` command tailors Claude to your role, expertise, and preferences
+- **Personalisation** — `/cofounder` runs an adaptive interview and saves your profile to `~/.claude/user-profile.md` (never committed to the repo)
 - **Project CLAUDE.md generation** — creates per-project context files so future sessions start instantly
 - **Notion integration** — 10 slash commands for managing documentation in Notion
 - **Session continuity** — returning projects get a one-line "ready to work" instead of re-scanning
@@ -38,13 +38,13 @@ If `~/.claude/CLAUDE.md` already exists, it's backed up to `~/.claude/CLAUDE.md.
 
 ### First Run
 
-After installing, start Claude Code and run:
+After installing, start Claude Code in any project. You'll see a one-line nudge:
 
-```
-/cofounder
-```
+> *Tip: run `/cofounder` to personalise how I work with you.*
 
-This walks you through a short interview to personalise the co-founder to your role, experience, and preferences.
+Run `/cofounder` to start the adaptive interview. It asks 2–4 rounds of questions based on your role and experience, then saves your profile to `~/.claude/user-profile.md`.
+
+On subsequent sessions, Claude reads the profile silently and applies your preferences (explanation depth, pushback level, tool choices, always/never rules) without asking again. Run `/cofounder` again any time to update your profile.
 
 ## Uninstall
 
@@ -60,7 +60,7 @@ Removes symlinks and restores backups if they exist.
 
 | Command | When to Use |
 |---------|------------|
-| `/cofounder` | Personalise Claude to your role, expertise, and work style |
+| `/cofounder` | Adaptive interview → saves profile to `~/.claude/user-profile.md` |
 | `/startup` | Re-run orientation. Refreshes context, flags outdated CLAUDE.md |
 | `/onboard` | Force full onboarding from scratch (regenerate CLAUDE.md) |
 | `/ready2modify` | Sync repo on a new machine (git pull, status check) |

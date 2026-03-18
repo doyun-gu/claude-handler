@@ -32,7 +32,7 @@ claude-handler/
 | File | Purpose |
 |------|---------|
 | `global/CLAUDE.md` | Core deliverable. Loaded every Claude session. Contains persona, startup protocol, workflow phases, CLAUDE.md generation format. |
-| `global/commands/cofounder.md` | Personalisation interview. Gathers user's role, expertise, preferences and appends to global CLAUDE.md. |
+| `global/commands/cofounder.md` | Adaptive personalisation interview. Writes user profile to `~/.claude/user-profile.md` (never to global CLAUDE.md). |
 | `global/commands/startup.md` | Re-runs orientation. Detects project state, flags outdated CLAUDE.md. |
 | `global/commands/onboard.md` | Forces full onboarding regardless of existing CLAUDE.md. |
 | `global/commands/ready2modify.md` | Pulls latest changes when switching machines. |
@@ -48,6 +48,15 @@ claude-handler/
 ./install.sh      # Install (symlink into ~/.claude/)
 ./uninstall.sh    # Uninstall (remove symlinks, restore backups)
 ```
+
+## User Profile
+
+The `/cofounder` command writes to `~/.claude/user-profile.md` — a standalone file outside this repo. This is intentional:
+- **Privacy:** Personal info (role, preferences, rules) never gets committed to the public repo.
+- **Separation:** The profile is per-machine, not per-project. It lives in `~/.claude/` alongside the symlinked global CLAUDE.md.
+- **Session startup:** `global/CLAUDE.md` has a pre-check that reads `user-profile.md` silently at every session start. If the file doesn't exist, it nudges the user to run `/cofounder`.
+
+The profile is NOT managed by `install.sh` / `uninstall.sh` — it persists independently.
 
 ## Conventions
 
