@@ -487,6 +487,8 @@ async def get_logs_list():
 async def get_notifications():
     """Recent notification history from logs and task manifests."""
     notifications = []
+    seen_subjects = set()
+
     # Read from notifications.log if it exists
     notif_log = LOGS_DIR / "notifications.log"
     if notif_log.exists():
@@ -495,12 +497,11 @@ async def get_notifications():
             for line in text.strip().split("\n"):
                 if not line.strip():
                     continue
-                # Try to parse JSON log entries
                 try:
                     entry = json.loads(line)
                     notifications.append(entry)
+                    seen_subjects.add(entry.get("subject", ""))
                 except json.JSONDecodeError:
-                    # Parse plain text log lines: [timestamp] subject | task_id
                     match = re.match(
                         r"\[([^\]]+)\]\s+(.+?)(?:\s*\|\s*(.+))?$", line
                     )
@@ -511,17 +512,46 @@ async def get_notifications():
                             "task_id": (match.group(3) or "").strip(),
                             "reply_received": False,
                         })
+                        seen_subjects.add(match.group(2).strip())
         except OSError:
             pass
 
-    # Also scan task manifests for notified_at
+    # Scan daemon log for [notify] entries (fleet-notify.sh prints these)
+    daemon_log = LOGS_DIR / "daemon.log"
+    if daemon_log.exists():
+        try:
+            text = daemon_log.read_text()
+            lines = text.split("\n")
+            # Read last 500 lines to keep it fast
+            for line in lines[-500:]:
+                match = re.match(
+                    r".*\[notify\]\s+(Email sent|FAILED):\s+(.+)$", line
+                )
+                if match:
+                    status = match.group(1)
+                    subject = match.group(2).strip()
+                    if subject in seen_subjects:
+                        continue
+                    seen_subjects.add(subject)
+                    # Extract task_id from subject if possible
+                    tid_match = re.search(r"(\d{8}-\d{6}-[\w-]+)", subject)
+                    notifications.append({
+                        "timestamp": "",  # daemon log doesn't have iso timestamps inline
+                        "subject": subject,
+                        "task_id": tid_match.group(1) if tid_match else "",
+                        "reply_received": False,
+                        "send_status": "sent" if status == "Email sent" else "failed",
+                    })
+        except OSError:
+            pass
+
+    # Scan task manifests for notified_at
     if TASKS_DIR.exists():
         for f in sorted(TASKS_DIR.glob("*.json"), reverse=True):
             try:
                 data = json.loads(f.read_text())
                 notified_at = data.get("notified_at")
                 if notified_at:
-                    # Avoid duplicate if already in log
                     task_id = data.get("id", f.stem)
                     if not any(n.get("task_id") == task_id for n in notifications):
                         notifications.append({
@@ -549,8 +579,8 @@ async def get_notifications():
             if tid and any(slug in tid for slug in reply_task_ids):
                 n["reply_received"] = True
 
-    # Sort by timestamp descending
-    notifications.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    # Sort by timestamp descending (entries without timestamp go to end)
+    notifications.sort(key=lambda x: x.get("timestamp", "") or "0", reverse=True)
     return notifications
 
 
