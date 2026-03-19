@@ -198,9 +198,16 @@ Two machines work together. The Commander (MacBook Pro) is interactive — you t
 
 | Command | Role | What it does |
 |---------|------|-------------|
+| `/fleet` | Commander | Cross-project dashboard — sync state, tasks, PRs |
+| `/fleet sync` | Commander | Pull all projects to latest on both machines |
 | `/dispatch` | Commander | Send a task to the Mac Mini Worker |
+| `/dispatch @project` | Commander | Send a task for a specific project |
 | `/worker-status` | Commander | Check progress of all Worker tasks |
 | `/worker-review` | Commander | Review and merge completed Worker PRs |
+
+### Project Registry
+
+All projects are tracked in `~/.claude-fleet/projects.json` (synced to both machines). `/dispatch` can target any registered project regardless of your current working directory.
 
 ### Git Branch Strategy (conflict-free)
 

@@ -16,17 +16,35 @@ cat ~/.claude-fleet/machine-role.conf
 
 If the file doesn't exist or MACHINE_ROLE is not `commander`, tell the user: "Fleet not set up. Run `~/.claude/setup-fleet.sh` first."
 
-### Step 1: Parse the task
+### Step 1: Resolve the project
+
+First, read the project registry:
+
+```bash
+cat ~/.claude-fleet/projects.json
+```
+
+Determine the target project:
+1. **If the user specifies a project** (e.g., `/dispatch @faradaysim ...` or `/dispatch project:phixty-com ...`): use that project from the registry.
+2. **If inside a project directory**: match the current working directory name against the registry.
+3. **If neither**: ask the user which project. Show the list from the registry.
+
+If the project is not on the Mac Mini yet, clone it first:
+```bash
+ssh mac-mini "test -d <project_path> || git clone <repo_url> <project_path>"
+```
+
+### Step 2: Parse the task
 
 The user's message after `/dispatch` is the task description. Extract:
 - **task**: What to do (the full description)
-- **project**: Which project directory on the Worker (detect from current working directory name, default: `~/Developer/faradaysim`)
+- **project**: Resolved from Step 1
 - **subdir**: If the task targets a submodule (e.g., `faradaysim-frontend`), note it
 - **permission**: Default `auto`. If user says "full-perms" or "overnight", use `dangerously-skip-permissions`. If user says "plan" or "research", use `plan`.
 - **budget**: Default `$5`. If user specifies a budget, use that.
 - **base_branch**: Default `main`. If user specifies a branch, use that.
 
-### Step 2: Generate task ID and branch name
+### Step 3: Generate task ID and branch name
 
 ```bash
 TASK_SLUG="<slugified-3-4-word-summary>"
@@ -35,7 +53,7 @@ BRANCH="worker/${TASK_SLUG}-$(date +%Y%m%d)"
 TMUX_SESSION="claude-${TASK_SLUG}"
 ```
 
-### Step 3: Write local task manifest
+### Step 4: Write local task manifest
 
 ```bash
 mkdir -p ~/.claude-fleet/tasks
@@ -44,7 +62,8 @@ cat > ~/.claude-fleet/tasks/${TASK_ID}.json << EOF
   "id": "${TASK_ID}",
   "slug": "${TASK_SLUG}",
   "branch": "${BRANCH}",
-  "project": "<project_dir>",
+  "project_name": "<project_name>",
+  "project_path": "<project_dir>",
   "subdir": "<subdir_or_null>",
   "dispatched_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "status": "dispatched",
@@ -56,7 +75,7 @@ cat > ~/.claude-fleet/tasks/${TASK_ID}.json << EOF
 EOF
 ```
 
-### Step 4: Prepare the Worker system prompt
+### Step 5: Prepare the Worker system prompt
 
 Build this string (do NOT include backticks inside it — escape properly):
 
@@ -74,7 +93,7 @@ WORKER RULES:
 8. Use gstack skills as appropriate: /review before pushing, /qa if testing needed."
 ```
 
-### Step 5: Dispatch via SSH
+### Step 6: Dispatch via SSH
 
 Read `WORKER_CLAUDE_BIN` from `~/.claude-fleet/machine-role.conf` (default: `/Users/doyungu/.local/bin/claude`).
 
@@ -106,7 +125,7 @@ ssh mac-mini "
 
 **Important:** If `--permission-mode` is `dangerously-skip-permissions`, use the flag `--dangerously-skip-permissions` instead.
 
-### Step 6: Confirm dispatch
+### Step 7: Confirm dispatch
 
 After SSH succeeds, tell the user:
 
@@ -122,7 +141,7 @@ Check progress: /worker-status
 Review when done: /worker-review
 ```
 
-### Step 7: Copy task manifest to Worker
+### Step 8: Copy task manifest to Worker
 
 ```bash
 scp ~/.claude-fleet/tasks/${TASK_ID}.json mac-mini:~/.claude-fleet/tasks/
@@ -137,18 +156,22 @@ scp ~/.claude-fleet/tasks/${TASK_ID}.json mac-mini:~/.claude-fleet/tasks/
 ## Examples
 
 User: `/dispatch Run /qa on the frontend auth flow. Test login, signup, password reset.`
+- project: auto-detected from cwd (faradaysim)
 - slug: `qa-auth-flow`
-- project: `~/Developer/faradaysim`
 - subdir: `faradaysim-frontend`
-- permission: `auto`
-- budget: `$5`
+- permission: `auto`, budget: `$5`
+
+User: `/dispatch @phixty-com full-perms budget:10 Rebuild the landing page with new design system`
+- project: phixty-com (explicit)
+- slug: `rebuild-landing`
+- permission: `dangerously-skip-permissions`, budget: `$10`
 
 User: `/dispatch full-perms budget:20 Build the power flow visualization module with Newton-Raphson solver`
+- project: auto-detected from cwd
 - slug: `powerflow-viz`
-- permission: `dangerously-skip-permissions`
-- budget: `$20`
+- permission: `dangerously-skip-permissions`, budget: `$20`
 
-User: `/dispatch plan Research how PSCAD handles transient simulation and document the approach`
+User: `/dispatch @faradaysim plan Research how PSCAD handles transient simulation and document the approach`
+- project: faradaysim (explicit, can dispatch from any directory)
 - slug: `research-pscad`
-- permission: `plan`
-- budget: `$3`
+- permission: `plan`, budget: `$3`
