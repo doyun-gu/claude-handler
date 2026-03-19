@@ -201,6 +201,9 @@ WORKER RULES:
         ok "Task $task_id completed successfully"
         update_task_status "$task_file" "completed"
 
+        # Email notification
+        "$HOME/Developer/claude-handler/fleet-notify.sh" --task-complete "$task_id" 2>/dev/null &
+
         # Write a review-queue item so Commander knows
         cat > "$REVIEW_DIR/${task_id}-completed.md" << REVIEW_EOF
 ---
@@ -223,6 +226,9 @@ REVIEW_EOF
     else
         err "Task $task_id failed with exit code $exit_code"
         update_task_status "$task_file" "failed"
+
+        # Email notification
+        "$HOME/Developer/claude-handler/fleet-notify.sh" --task-failed "$task_id" 2>/dev/null &
 
         cat > "$REVIEW_DIR/${task_id}-failed.md" << REVIEW_EOF
 ---

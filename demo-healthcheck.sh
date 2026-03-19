@@ -144,6 +144,9 @@ BUG_ENTRY
 
     log "${RED}NEW BUG logged: $slug — $description${NC}"
 
+    # Email notification for new bugs
+    "$HOME/Developer/claude-handler/fleet-notify.sh" --bug-detected "$slug" 2>/dev/null &
+
     # Also write to review queue so Commander sees it on startup
     cat > "$FLEET_DIR/review-queue/bug-$slug.md" << REVIEW
 ---
@@ -413,6 +416,9 @@ while true; do
         smoke_test_app_page
         check_preview_server
         maybe_create_worker_task
+
+        # Check Gmail for reply commands
+        "$HOME/Developer/claude-handler/fleet-notify.sh" --check-replies 2>/dev/null
     fi
 
     sleep "$CHECK_INTERVAL"
