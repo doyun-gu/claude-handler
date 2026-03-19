@@ -107,6 +107,8 @@ run_task() {
     permission_mode=$(python3 -c "import json; print(json.load(open('$task_file')).get('permission_mode','auto'))")
     subdir=$(python3 -c "import json; print(json.load(open('$task_file')).get('subdir','') or '')")
     budget=$(python3 -c "import json; print(json.load(open('$task_file')).get('budget_usd', 5))")
+    local base_branch
+    base_branch=$(python3 -c "import json; print(json.load(open('$task_file')).get('base_branch','main'))")
 
     local work_dir="$project_path"
     [[ -n "$subdir" ]] && work_dir="$project_path/$subdir"
@@ -123,9 +125,14 @@ run_task() {
     cd "$project_path"
     git fetch origin 2>/dev/null || true
 
-    # Create branch if it doesn't exist
+    # Create branch if it doesn't exist (use base_branch from manifest)
     if ! git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-        git checkout -b "$branch" origin/main 2>/dev/null || git checkout -b "$branch" main 2>/dev/null || true
+        # Try origin/base_branch first, then local base_branch, then origin/main
+        git checkout -b "$branch" "origin/$base_branch" 2>/dev/null \
+            || git checkout -b "$branch" "$base_branch" 2>/dev/null \
+            || git checkout -b "$branch" origin/main 2>/dev/null \
+            || git checkout -b "$branch" main 2>/dev/null \
+            || true
     else
         git checkout "$branch" 2>/dev/null || true
     fi
