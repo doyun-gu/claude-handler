@@ -7,17 +7,23 @@ You are the Commander (MacBook Pro). This command shows a real-time dashboard of
 ### Step 1: Read fleet config
 
 ```bash
-cat ~/.claude-fleet/machine-role.conf 2>/dev/null
+source ~/.claude-fleet/machine-role.conf 2>/dev/null
 ```
 
+Use `$SSH_TARGET` for the worker hostname and `$MACHINE_ROLE` to verify this is a commander.
 If not commander, say: "This command is for Commander machines only."
 
-### Step 2: Gather all data from Mac Mini (single SSH call for speed)
+Get the worker IP for display:
+```bash
+ssh $SSH_TARGET "ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print \$1}'"
+```
+
+### Step 2: Gather all data from Worker (single SSH call for speed)
 
 Run this as one SSH command to avoid multiple round-trips:
 
 ```bash
-ssh mac-mini "
+ssh $SSH_TARGET "
 export PATH=/opt/homebrew/bin:\$HOME/.local/bin:\$PATH
 
 echo '===SYSTEM==='
@@ -81,8 +87,8 @@ Format the output as a polished dashboard. Use box-drawing characters and alignm
 
   SERVICES
   ────────
-  API   http://192.168.1.114:8000    {✅ 200 | ❌ DOWN}
-  Web   http://192.168.1.114:3001    {✅ 200 | ❌ DOWN}
+  API   http://{worker_ip}:8000    {✅ 200 | ❌ DOWN}
+  Web   http://{worker_ip}:3001    {✅ 200 | ❌ DOWN}
   Health checker                     {✅ running | ❌ stopped}
   Worker daemon                      {✅ running | ❌ stopped}
 
