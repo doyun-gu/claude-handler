@@ -177,3 +177,39 @@ Update the project's `CLAUDE.md` when:
 - The user asks you to
 
 Don't update for minor changes — the CLAUDE.md should be stable, not a changelog.
+
+---
+
+## gstack — Sprint Workflow Skills
+
+Use `/browse` from gstack for all web browsing. Never use `mcp__claude-in-chrome__*` tools.
+
+**Sprint process:** Think → Plan → Build → Review → Test → Ship → Reflect
+
+Available skills:
+
+| Phase | Skill | What it does |
+|-------|-------|-------------|
+| Think | `/office-hours` | Reframe the product idea before writing code |
+| Plan | `/plan-ceo-review` | CEO lens — scope, strategy, 10-star product |
+| Plan | `/plan-eng-review` | Eng manager — architecture, data flow, edge cases |
+| Plan | `/plan-design-review` | Designer — rates design dimensions 0-10 |
+| Design | `/design-consultation` | Build a complete design system from scratch |
+| Review | `/review` | Staff engineer — finds production bugs, auto-fixes |
+| Debug | `/investigate` | Systematic root-cause debugging |
+| Design | `/design-review` | Visual audit + fix loop with atomic commits |
+| Test | `/qa` | QA with real browser — find bugs, fix, re-verify |
+| Test | `/qa-only` | Same as /qa but report only, no fixes |
+| Ship | `/ship` | Sync, test, coverage audit, push, open PR |
+| Docs | `/document-release` | Update all project docs post-ship |
+| Reflect | `/retro` | Weekly retro with per-person breakdowns |
+| Browse | `/browse` | Headless Chromium browser (~100ms/command) |
+| Browse | `/setup-browser-cookies` | Import cookies from real browser |
+| Multi-AI | `/codex` | Second opinion from OpenAI Codex CLI |
+| Safety | `/careful` | Warn before destructive commands |
+| Safety | `/freeze` | Restrict edits to one directory |
+| Safety | `/guard` | /careful + /freeze combined |
+| Safety | `/unfreeze` | Remove /freeze restriction |
+| Meta | `/gstack-upgrade` | Self-update gstack to latest |
+
+If gstack skills aren't working, run: `cd ~/.claude/skills/gstack && ./setup`
