@@ -367,6 +367,49 @@ smoke_test_app_page() {
     fi
 }
 
+# ─── Digest email when new items accumulate ───────
+LAST_DIGEST_COUNT=0
+
+send_digest_if_needed() {
+    local current_count
+    current_count=$(ls "$FLEET_DIR"/review-queue/*.md 2>/dev/null | wc -l | tr -d ' ')
+    current_count=${current_count:-0}
+
+    # Only send if new items appeared since last digest
+    if (( current_count > LAST_DIGEST_COUNT && current_count > 0 )); then
+        LAST_DIGEST_COUNT=$current_count
+
+        # Build the queue table HTML
+        local rows=""
+        for f in "$FLEET_DIR"/review-queue/*.md; do
+            [[ -f "$f" ]] || continue
+            local fname type priority icon badge_bg badge_color
+            fname=$(basename "$f" .md)
+            type=$(grep 'type:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
+            priority=$(grep 'priority:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
+
+            case "$type" in
+                completed) icon="✅"; badge_bg="#DCFCE7"; badge_color="#166534" ;;
+                failed)    icon="❌"; badge_bg="#FEE2E2"; badge_color="#991B1B" ;;
+                blocked)   icon="🔴"; badge_bg="#FEE2E2"; badge_color="#991B1B" ;;
+                *)         icon="💬"; badge_bg="#F1F5F9"; badge_color="#475569" ;;
+            esac
+
+            local pri_badge=""
+            [[ "$priority" == "high" ]] && pri_badge="<span style='background:#FEE2E2;color:#991B1B;padding:1px 8px;border-radius:10px;font-size:11px;'>HIGH</span>"
+
+            rows+="<tr style='border-bottom:1px solid #E2E8F0;'><td style='padding:8px 0;'>$icon</td><td style='padding:8px 4px;font-weight:500;'>$fname</td><td style='color:#64748B;font-size:12px;'>$type</td><td>$pri_badge</td></tr>"
+        done
+
+        "$HOME/Developer/claude-handler/fleet-notify.sh" \
+            "Fleet Digest — ${current_count} items to review" \
+            "<table style='width:100%;font-size:13px;border-collapse:collapse;'>$rows</table><div style='margin-top:16px;text-align:center;'><a href='mailto:${GMAIL_USER:-}?subject=Re:%20Fleet%20Digest&body=merge%20all' style='display:inline-block;padding:8px 24px;background:#166534;color:#FFFFFF;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;'>✓ Merge All</a></div>" \
+            2>/dev/null &
+
+        log "${BLUE}Digest email sent (${current_count} items)${NC}"
+    fi
+}
+
 # ─── Main loop ────────────────────────────────────
 
 init_debug_file
@@ -419,6 +462,9 @@ while true; do
 
         # Check Gmail for reply commands
         "$HOME/Developer/claude-handler/fleet-notify.sh" --check-replies 2>/dev/null
+
+        # Send digest if new completed items since last digest
+        send_digest_if_needed
     fi
 
     sleep "$CHECK_INTERVAL"

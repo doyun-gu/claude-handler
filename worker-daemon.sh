@@ -250,32 +250,99 @@ REVIEW_EOF
     fi
 }
 
-# ─── Main loop ───────────────────────────────────────────────
+# ─── Track running projects (file-based for bash 3 compat) ───
 
-log "Worker daemon started"
+RUNNING_DIR="/tmp/fleet-running"
+mkdir -p "$RUNNING_DIR"
+
+# Check if a project already has a running task
+is_project_running() {
+    local project="$1"
+    local pidfile="$RUNNING_DIR/$project.pid"
+    if [[ -f "$pidfile" ]]; then
+        local pid
+        pid=$(cat "$pidfile")
+        if kill -0 "$pid" 2>/dev/null; then
+            return 0  # Still running
+        fi
+        rm -f "$pidfile"
+    fi
+    return 1  # Not running
+}
+
+# Run a task in the background
+run_task_async() {
+    local task_file="$1"
+    local project
+    project=$(python3 -c "import json; print(json.load(open('$task_file')).get('project_name','unknown'))")
+
+    (
+        run_task "$task_file" || err "run_task crashed for $(basename "$task_file")"
+        rm -f "$RUNNING_DIR/$project.pid"
+    ) &
+    local pid=$!
+    echo "$pid" > "$RUNNING_DIR/$project.pid"
+    log "Started task in background (PID $pid, project: $project)"
+}
+
+# Count currently running tasks
+count_running() {
+    local count=0
+    for pidfile in "$RUNNING_DIR"/*.pid; do
+        [[ -f "$pidfile" ]] || continue
+        local pid
+        pid=$(cat "$pidfile")
+        if kill -0 "$pid" 2>/dev/null; then
+            count=$((count + 1))
+        else
+            rm -f "$pidfile"
+        fi
+    done
+    echo "$count"
+}
+
+# ─── Main loop (parallel per project) ────────────────────────
+
+log "Worker daemon started (PARALLEL MODE)"
 log "  Poll interval: ${POLL_INTERVAL}s"
 log "  Claude CLI:    $CLAUDE_BIN"
 log "  Tasks dir:     $TASKS_DIR"
 log "  Review queue:  $REVIEW_DIR"
+log "  Strategy:      1 task per project in parallel, same-project tasks queue"
 echo ""
 
 while true; do
-    task_file=$(next_queued_task)
+    launched=0
 
-    if [[ -n "$task_file" ]]; then
+    # Find queued tasks, one per project
+    for f in "$TASKS_DIR"/*.json; do
+        [[ -f "$f" ]] || continue
+        status=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
+        [[ "$status" != "queued" ]] && continue
+
+        project=$(python3 -c "import json; print(json.load(open('$f')).get('project_name','unknown'))" 2>/dev/null)
+
+        # Skip if this project already has a running task
+        if is_project_running "$project"; then
+            continue
+        fi
+
         queued=$(count_tasks "queued")
-        log "Found queued task ($queued in queue)"
+        log "Launching task for $project ($queued in queue)"
+        run_task_async "$f"
+        launched=$((launched + 1))
+    done
 
-        # Run the task (blocks until Claude finishes)
-        run_task "$task_file" || {
-            err "run_task crashed — continuing to next task"
-        }
-
-        echo ""
-        log "Task finished. Checking queue immediately..."
-        continue  # Check for next task without sleeping
+    if (( launched > 0 )); then
+        running=$(count_running)
+        log "Running $running tasks in parallel"
     fi
 
-    # No tasks — sleep and check again
-    sleep "$POLL_INTERVAL"
+    # Poll interval: faster when tasks are active
+    running=$(count_running)
+    if (( running > 0 )); then
+        sleep 10
+    else
+        sleep "$POLL_INTERVAL"
+    fi
 done
