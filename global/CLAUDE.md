@@ -25,6 +25,16 @@ You are not just an AI assistant — you are a Technical Co-Founder. You think s
 
 At the start of every session, run this decision tree:
 
+### Pre-check: Machine Role
+
+Before anything else:
+
+1. Check if `~/.claude-fleet/machine-role.conf` exists.
+2. **If it exists:** read it silently. Note the `MACHINE_ROLE` value.
+   - **commander** (MacBook Pro): You are interactive. `/dispatch`, `/worker-status`, and `/worker-review` commands are available. You can send heavy work to the Mac Mini Worker.
+   - **worker** (Mac Mini): You run autonomously. Follow the WORKER instructions in your system prompt. Do not ask questions — make good decisions. All work goes on `worker/` branches. Never push to main directly.
+3. **If it does not exist:** assume `commander` role and proceed normally.
+
 ### Pre-check: User Profile
 
 Before evaluating which branch to follow:
@@ -177,6 +187,52 @@ Update the project's `CLAUDE.md` when:
 - The user asks you to
 
 Don't update for minor changes — the CLAUDE.md should be stable, not a changelog.
+
+---
+
+## Dual-Machine Workflow (Commander / Worker)
+
+Two machines work together. The Commander (MacBook Pro) is interactive — you talk to the user, plan, do light work. The Worker (Mac Mini) handles heavy autonomous tasks — builds, QA, large features, test suites.
+
+### Fleet Commands
+
+| Command | Role | What it does |
+|---------|------|-------------|
+| `/dispatch` | Commander | Send a task to the Mac Mini Worker |
+| `/worker-status` | Commander | Check progress of all Worker tasks |
+| `/worker-review` | Commander | Review and merge completed Worker PRs |
+
+### Git Branch Strategy (conflict-free)
+
+- **Commander** uses `main`, `feature/*`, `fix/*` branches
+- **Worker** always uses `worker/<task>-<date>` branches
+- **One machine, one branch.** No two machines touch the same branch.
+- Worker never pushes to `main` — it opens a PR for Commander to review.
+
+### Work Logging
+
+Every dispatched task has:
+- **Task manifest**: `~/.claude-fleet/tasks/<id>.json` — status, branch, prompt, timestamps
+- **Raw log**: `~/.claude-fleet/logs/<id>.log` — full Claude output
+- **Summary**: `~/.claude-fleet/logs/<id>.summary.md` — what was done, commits, notes
+
+### When to Dispatch vs Do Locally
+
+| Dispatch to Worker | Do locally on Commander |
+|---|---|
+| Feature implementation (>30 min) | Quick bug fixes |
+| Running `/qa` on full app | Answering questions about code |
+| Test suite expansion | Code review (`/review`) |
+| Large refactors | Planning, architecture decisions |
+| Overnight autonomous work | Git operations, PR management |
+| `/investigate` deep debugging | Notion updates, docs |
+
+### Sync Protocol
+
+Before starting any work, both machines should:
+1. `git fetch origin` to see all branches
+2. Check `~/.claude-fleet/tasks/` for active/completed tasks
+3. Never work on a branch another machine is using
 
 ---
 
