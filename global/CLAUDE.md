@@ -43,6 +43,68 @@ Before evaluating which branch to follow:
 2. **If it exists:** read it silently. Apply the preferences it contains for the rest of this session (see "Applying User Profile" below). Do not mention the profile to the user unless they ask.
 3. **If it does not exist:** after completing the branch logic below, add a one-line nudge: *"Tip: run `/cofounder` to personalise how I work with you."* Do not block on this — continue the normal startup flow.
 
+### Pre-check: Auto-Sync
+
+Before doing anything else, silently sync the current project:
+
+1. **Sync current project:**
+   ```bash
+   git fetch origin 2>/dev/null && git pull --ff-only origin $(git branch --show-current) 2>/dev/null
+   git submodule update --init 2>/dev/null
+   ```
+   If pull fails (diverged), do NOT force — just note it silently and mention it in the greeting: "Note: your local branch has diverged from remote — you may want to merge or rebase."
+
+2. **Sync claude-handler (self-update):**
+   ```bash
+   cd ~/Developer/claude-handler && git fetch origin 2>/dev/null
+   LOCAL=$(git rev-parse HEAD)
+   REMOTE=$(git rev-parse origin/main)
+   if [ "$LOCAL" != "$REMOTE" ]; then
+     git pull --ff-only origin main 2>/dev/null
+   fi
+   cd -
+   ```
+   If claude-handler was updated, mention it briefly: "Updated claude-handler to latest."
+
+3. **If Commander:** also check Mac Mini sync state (non-blocking, don't SSH if it slows startup):
+   ```bash
+   # Just check local fleet state — don't SSH on every startup
+   ls ~/.claude-fleet/tasks/*.json 2>/dev/null | head -5
+   ```
+
+### Pre-check: Review Queue (Commander only)
+
+If MACHINE_ROLE is `commander`, check for Worker feedback before greeting the user:
+
+1. **Scan the review queue:**
+   ```bash
+   ls ~/.claude-fleet/review-queue/*.md 2>/dev/null
+   ```
+
+2. **If review items exist**, read each `.md` file and categorise:
+   - **`type: blocked`** — Worker is stuck and cannot continue. **Surface immediately.**
+   - **`type: failed`** — Task crashed. Surface with high priority.
+   - **`type: completed`** — Task finished, PR ready for review. Surface as actionable.
+   - **`type: decision_needed`** — Worker made a choice but wants your input. Surface as informational.
+
+3. **Present before the greeting** in a compact format:
+   ```
+   ── Worker Update ──────────────────────────────
+   🔴 BLOCKED  ieee-bus-engine    "Missing ngspice on Mac Mini"
+   ✅ DONE     powerflow-api      PR #15 ready → /worker-review
+   💬 DECISION ieee-bus-tests     "Used MATPOWER format over IEEE CDF — confirm?"
+   ──────────────────────────────────────────────
+   ```
+   Then offer actions: "Run `/worker-review` to review completed work, or ask about any item."
+
+4. **If no review items**, skip silently.
+
+5. **Also check for Worker PRs on GitHub:**
+   ```bash
+   gh pr list --search "head:worker/" --state open --json number,title,headRefName 2>/dev/null
+   ```
+   If there are open PRs not in the review queue (e.g., from a previous session), mention them.
+
 ### Branch 1: Returning Project (project has CLAUDE.md)
 
 Read the project's `CLAUDE.md`. Greet with a one-line status:
@@ -204,6 +266,47 @@ Two machines work together. The Commander (MacBook Pro) is interactive — you t
 | `/dispatch @project` | Commander | Send a task for a specific project |
 | `/worker-status` | Commander | Check progress of all Worker tasks |
 | `/worker-review` | Commander | Review and merge completed Worker PRs |
+
+### Worker Daemon (Autonomous Mode)
+
+The Mac Mini runs `worker-daemon.sh` — a persistent process that watches the task queue and runs Claude sessions back-to-back with zero downtime.
+
+**How it works:**
+1. Daemon polls `~/.claude-fleet/tasks/` every 30s for tasks with `status: "queued"`
+2. Picks the oldest queued task, updates status to `running`, starts Claude
+3. Claude runs fully autonomous (`--dangerously-skip-permissions`, `--max-turns 200`)
+4. When Claude finishes, daemon updates status and immediately checks for the next task
+5. If no tasks are queued, daemon sleeps and checks again
+
+**Start the daemon:**
+```bash
+ssh mac-mini "tmux new-session -d -s worker-daemon 'cd ~/Developer/claude-handler && ./worker-daemon.sh'"
+```
+
+**Stop the daemon:**
+```bash
+ssh mac-mini "tmux kill-session -t worker-daemon"
+```
+
+### Review Queue
+
+Workers never block waiting for input. Instead, they log to `~/.claude-fleet/review-queue/`:
+
+| File pattern | Meaning |
+|---|---|
+| `<task-id>-completed.md` | Task done, PR ready for review |
+| `<task-id>-failed.md` | Task crashed — check the log |
+| `<task-id>-blocked.md` | Worker genuinely stuck — needs Commander help |
+| `<task-id>-decision.md` | Worker made a choice but wants Commander confirmation |
+
+**Commander auto-checks this on every session startup.** If there are items, they're surfaced before the greeting. The user never needs to manually poll.
+
+After Commander reviews an item, delete the `.md` file from the review queue:
+```bash
+rm ~/.claude-fleet/review-queue/<task-id>-completed.md
+# Also on Mac Mini:
+ssh mac-mini "rm ~/.claude-fleet/review-queue/<task-id>-completed.md 2>/dev/null"
+```
 
 ### Project Registry
 

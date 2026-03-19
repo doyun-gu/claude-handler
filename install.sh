@@ -72,6 +72,15 @@ if [ -d "$SCRIPT_DIR/notion/commands" ]; then
     echo ""
 fi
 
+# --- Fleet directories ---
+
+echo "Fleet directories:"
+mkdir -p "$HOME/.claude-fleet/tasks" "$HOME/.claude-fleet/logs" "$HOME/.claude-fleet/review-queue"
+echo "  [ok] ~/.claude-fleet/tasks/"
+echo "  [ok] ~/.claude-fleet/logs/"
+echo "  [ok] ~/.claude-fleet/review-queue/"
+echo ""
+
 # --- Summary ---
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

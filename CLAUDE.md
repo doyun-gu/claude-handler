@@ -10,6 +10,7 @@ claude-handler/
 ├── README.md                          # User-facing documentation
 ├── install.sh                         # Symlinks global/ + notion/ into ~/.claude/
 ├── uninstall.sh                       # Removes symlinks, restores backups
+├── worker-daemon.sh                   # Autonomous Worker daemon for Mac Mini
 ├── global/
 │   ├── CLAUDE.md                      # Core — symlinked to ~/.claude/CLAUDE.md
 │   └── commands/
@@ -41,6 +42,7 @@ claude-handler/
 | `templates/project-claude-md.md` | Human-readable reference for the CLAUDE.md structure. |
 | `install.sh` | Creates symlinks, backs up existing files. |
 | `uninstall.sh` | Removes symlinks, restores backups. |
+| `worker-daemon.sh` | Runs on Mac Mini in tmux. Watches task queue, runs Claude sessions back-to-back. |
 
 ## Dev Commands
 
