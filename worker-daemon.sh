@@ -71,6 +71,105 @@ update_task_status() {
     python3 "$QM" update-status "$@"
 }
 
+# ─── Auto-merge helpers ──────────────────────────────────
+
+# Check if a task slug indicates it's safe to auto-merge
+is_auto_mergeable() {
+    local slug_lower
+    slug_lower=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+
+    # UI/UX/visual/design tasks need human review
+    local ui_kw
+    for ui_kw in ui ux visual design frontend css style; do
+        if [[ "$slug_lower" == *"$ui_kw"* ]]; then
+            return 1
+        fi
+    done
+
+    # Auto-merge keywords: functional fixes, docs, infra, maintenance
+    local auto_kw
+    for auto_kw in bug fix docs doc readme arch infra maintenance sync cleanup; do
+        if [[ "$slug_lower" == *"$auto_kw"* ]]; then
+            return 0
+        fi
+    done
+
+    return 1  # Default: not auto-mergeable, leave for human review
+}
+
+# Find GitHub repo (owner/name) for a project path via projects.json
+find_repo_for_project() {
+    local project_path="$1"
+    local projects_file="$FLEET_DIR/projects.json"
+    [[ -f "$projects_file" ]] || return 1
+    python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+for p in data.get('projects', []):
+    if p.get('path') == sys.argv[2]:
+        repo = p.get('repo', '')
+        if repo.startswith('git@github.com:'):
+            print(repo.replace('git@github.com:', '').replace('.git', ''))
+        elif 'github.com/' in repo:
+            parts = repo.rstrip('/').replace('.git', '').split('github.com/')
+            if len(parts) > 1:
+                print(parts[-1])
+        sys.exit(0)
+" "$projects_file" "$project_path" 2>/dev/null
+}
+
+# Attempt to auto-merge a completed task's PR
+try_auto_merge() {
+    local task_file="$1"
+    local task_id="$2"
+    local branch="$3"
+    local project_path="$4"
+
+    local task_slug
+    task_slug=$(task_field "$task_file" slug "" 2>/dev/null)
+    [[ -z "$task_slug" ]] && task_slug="$task_id"
+
+    if ! is_auto_mergeable "$task_slug"; then
+        log "[auto-merge] Task '$task_slug' requires human review — skipping auto-merge"
+        return 1
+    fi
+
+    local repo
+    repo=$(find_repo_for_project "$project_path")
+    if [[ -z "$repo" ]]; then
+        warn "[auto-merge] Could not find GitHub repo for $project_path — skipping"
+        return 1
+    fi
+
+    # Get PR number
+    local pr_number
+    pr_number=$(gh pr list --repo "$repo" --head "$branch" --json number --jq '.[0].number' 2>/dev/null)
+    if [[ -z "$pr_number" ]]; then
+        warn "[auto-merge] No open PR found for branch '$branch' in $repo — skipping"
+        return 1
+    fi
+
+    log "[auto-merge] Merging PR #$pr_number for task $task_id ($repo)"
+    if gh pr merge "$pr_number" --repo "$repo" --squash --delete-branch 2>/dev/null; then
+        ok "[auto-merge] Merged PR #$pr_number for task $task_id"
+        update_task_status "$task_file" "merged"
+
+        # Archive any existing review-queue item
+        local archive_dir="$REVIEW_DIR/archived"
+        mkdir -p "$archive_dir"
+        for rq_file in "$REVIEW_DIR"/*"${task_id}"*.md; do
+            [[ -f "$rq_file" ]] || continue
+            mv "$rq_file" "$archive_dir/" 2>/dev/null && \
+                log "[auto-merge] Archived review item: $(basename "$rq_file")"
+        done
+
+        return 0
+    else
+        warn "[auto-merge] Failed to merge PR #$pr_number — leaving for human review"
+        return 1
+    fi
+}
+
 # Run a single task
 run_task() {
     local task_file="$1"
@@ -213,8 +312,17 @@ WORKER RULES:
         # Email notification
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-complete "$task_id" 2>/dev/null &
 
-        # Write a review-queue item so Commander knows
-        cat > "$REVIEW_DIR/${task_id}-completed.md" << REVIEW_EOF
+        # ── Auto-merge: try to merge safe PRs automatically ──
+        local auto_merged=false
+        if [[ -n "$pr_url" ]]; then
+            if try_auto_merge "$task_file" "$task_id" "$branch" "$project_path"; then
+                auto_merged=true
+            fi
+        fi
+
+        # Write a review-queue item only if NOT auto-merged
+        if [[ "$auto_merged" == "false" ]]; then
+            cat > "$REVIEW_DIR/${task_id}-completed.md" << REVIEW_EOF
 ---
 task_id: ${task_id}
 project: $(basename "$project_path")
@@ -232,6 +340,7 @@ Check the PR and summary:
 - Summary: ~/.claude-fleet/logs/${task_id}.summary.md
 - Run \`/worker-review\` to review and merge.
 REVIEW_EOF
+        fi
     else
         err "Task $task_id failed with exit code $exit_code"
 

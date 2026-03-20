@@ -113,8 +113,11 @@ def infer_review_category(meta: dict, filename: str) -> str:
     if item_type == "completed" and any(kw in task_id for kw in ui_keywords):
         return "action_required"
 
-    # completed with docs/architecture/infra → auto_mergeable
-    auto_keywords = ("docs", "architecture", "infra", "doc", "readme")
+    # completed with docs/architecture/infra/bug/fix/maintenance/sync/cleanup → auto_mergeable
+    auto_keywords = (
+        "docs", "architecture", "infra", "doc", "readme",
+        "bug", "fix", "maintenance", "sync", "cleanup",
+    )
     if item_type == "completed" and any(kw in task_id for kw in auto_keywords):
         return "auto_mergeable"
 
@@ -201,30 +204,109 @@ async def get_review(category: Optional[str] = Query(None)):
     items = []
     if not REVIEW_DIR.exists():
         return items
+
+    now = datetime.now()
+    archive_dir = REVIEW_DIR / "archived"
+
     for f in sorted(REVIEW_DIR.glob("*.md"), reverse=True):
         try:
             text = f.read_text()
             meta, body = parse_frontmatter(text)
-            # Compute review_category
-            cat = infer_review_category(meta, f.name)
-            # Filter by category if requested
-            if category and cat != category:
-                continue
-            # Try to load associated summary
-            summary_text = ""
             task_id = meta.get("task_id", "")
-            summary_path = LOGS_DIR / f"{task_id}.summary.md"
-            if summary_path.exists():
-                summary_text = summary_path.read_text()
-            # Get branch from task manifest
+
+            # ── Cross-reference with task manifest ──
+            task_data = None
+            task_status = ""
             branch = ""
+            pr_url = ""
+            project_path = ""
             task_file = TASKS_DIR / f"{task_id}.json"
             if task_file.exists():
                 try:
                     task_data = json.loads(task_file.read_text())
+                    task_status = task_data.get("status", "")
                     branch = task_data.get("branch", "")
+                    pr_url = task_data.get("pr_url", "")
+                    project_path = task_data.get("project_path", "")
                 except (json.JSONDecodeError, OSError):
                     pass
+
+            # If task is already merged, auto-archive and skip
+            if task_status == "merged":
+                archive_dir.mkdir(exist_ok=True)
+                try:
+                    f.rename(archive_dir / f.name)
+                except OSError:
+                    pass
+                continue
+
+            # ── Auto-archive stale items (>24h, non-critical) ──
+            created_at = meta.get("created_at", "")
+            if created_at:
+                try:
+                    created_str = created_at.replace("Z", "+00:00")
+                    created = datetime.fromisoformat(created_str)
+                    # Strip timezone for comparison
+                    created_naive = created.replace(tzinfo=None)
+                    age_hours = (now - created_naive).total_seconds() / 3600
+                    if age_hours > 24 and meta.get("type") not in ("blocked", "failed"):
+                        archive_dir.mkdir(exist_ok=True)
+                        try:
+                            f.rename(archive_dir / f.name)
+                        except OSError:
+                            pass
+                        continue
+                except (ValueError, TypeError):
+                    pass
+
+            # ── Check actual PR status via gh (for completed items) ──
+            pr_status = "unknown"
+            if task_status == "completed" and branch:
+                pr_status = "open"  # Default for completed tasks
+                repo = _find_repo_for_project(project_path) if project_path else None
+                if repo:
+                    try:
+                        result = subprocess.run(
+                            ["gh", "pr", "list", "--repo", repo, "--head", branch,
+                             "--state", "all", "--json", "state",
+                             "--jq", ".[0].state"],
+                            capture_output=True, text=True, timeout=5,
+                        )
+                        gh_state = result.stdout.strip().upper()
+                        if gh_state == "MERGED":
+                            pr_status = "merged"
+                            # Update task manifest to reflect merged state
+                            if task_file.exists() and task_data:
+                                task_data["status"] = "merged"
+                                task_data["merged_at"] = now.isoformat()
+                                task_file.write_text(json.dumps(task_data, indent=2))
+                            # Archive and skip
+                            archive_dir.mkdir(exist_ok=True)
+                            try:
+                                f.rename(archive_dir / f.name)
+                            except OSError:
+                                pass
+                            continue
+                        elif gh_state == "CLOSED":
+                            pr_status = "closed"
+                        elif gh_state == "OPEN":
+                            pr_status = "open"
+                    except (subprocess.TimeoutExpired, FileNotFoundError):
+                        pass
+            elif task_status == "completed" and pr_url:
+                pr_status = "open"
+
+            # ── Compute review_category ──
+            cat = infer_review_category(meta, f.name)
+            if category and cat != category:
+                continue
+
+            # Try to load associated summary
+            summary_text = ""
+            summary_path = LOGS_DIR / f"{task_id}.summary.md"
+            if summary_path.exists():
+                summary_text = summary_path.read_text()
+
             items.append({
                 "filename": f.name,
                 "meta": meta,
@@ -233,6 +315,7 @@ async def get_review(category: Optional[str] = Query(None)):
                 "review_category": cat,
                 "reason": review_reason(meta, cat, f.name),
                 "branch": branch,
+                "pr_status": pr_status,
             })
         except OSError:
             pass
