@@ -1,2 +1,31 @@
 # Ephemeral browser session data (gstack)
 .gstack/
+
+# Secrets and credentials — NEVER commit these
+secrets/
+*.conf
+!config.example/*.conf.example
+
+# Personal fleet state (machine-specific)
+projects.json
+machine-role.conf
+bug-db.json
+events.json
+
+# Runtime logs and state
+*.log
+*.log.*
+
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Node
+node_modules/
+
+# Generated plist (install-launchd.sh generates from template)
+launchd/com.fleet.supervisor.generated.plist
