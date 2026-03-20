@@ -45,8 +45,16 @@ if [[ ! -x "$CLAUDE_BIN" ]]; then
     exit 1
 fi
 
-# Queue manager path — all JSON operations go through this
-QM="$(cd "$(dirname "$0")" && pwd)/queue-manager.py"
+# Fleet brain path — all JSON operations go through this
+# Falls back to queue-manager.py if fleet-brain.py doesn't exist yet
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "$SCRIPT_DIR/fleet-brain.py" ]]; then
+    QM="$SCRIPT_DIR/fleet-brain.py"
+    log "Using fleet-brain.py"
+else
+    QM="$SCRIPT_DIR/queue-manager.py"
+    warn "fleet-brain.py not found, falling back to queue-manager.py"
+fi
 
 # Read a field from a task manifest (replaces inline python3 -c calls)
 task_field() {
