@@ -226,7 +226,7 @@ def _get_machine_identity() -> dict:
 
 
 # Cache machine identity (doesn't change during runtime)
-_machine_identity_cache: dict | None = None
+_machine_identity_cache: Optional[dict] = None
 
 
 def get_machine_identity() -> dict:
@@ -236,7 +236,7 @@ def get_machine_identity() -> dict:
     return _machine_identity_cache
 
 
-def _get_commander_last_seen() -> str | None:
+def _get_commander_last_seen() -> Optional[str]:
     """Check when Commander was last active (most recent task dispatch or SSH)."""
     latest: float = 0
 
