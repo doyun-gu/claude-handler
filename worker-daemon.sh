@@ -140,8 +140,10 @@ WORKER RULES:
    Then STOP — do not spin.
 7. Write a completion summary to ~/.claude-fleet/logs/${task_id}.summary.md when finished.
 8. Update ~/.claude-fleet/tasks/${task_id}.json status to completed or failed when done.
+   On completion, also set pr_url to the PR URL from gh pr create.
+   On failure, also set error_message to a one-line summary of what went wrong.
 9. Use gstack skills as appropriate: /review before pushing, /qa if testing a web app.
-10. There are ${queued_count} more tasks in the queue after this one. Work efficiently — the daemon will start the next task when you finish."
+10. There are ${queued_count} more tasks in the queue after this one. Your budget is \$${budget}. Work efficiently — the daemon will start the next task when you finish."
 
     # Determine permission flag
     local perm_flag=""
@@ -189,7 +191,16 @@ WORKER RULES:
     # Check result
     if [[ $exit_code -eq 0 ]]; then
         ok "Task $task_id completed successfully"
-        update_task_status "$task_file" "completed"
+
+        # Capture PR URL if Claude created one
+        local pr_url=""
+        pr_url=$(cd "$project_path" && gh pr list --head "$branch" --json url -q '.[0].url' 2>/dev/null || echo "")
+
+        if [[ -n "$pr_url" ]]; then
+            update_task_status "$task_file" "completed" "pr_url=$pr_url"
+        else
+            update_task_status "$task_file" "completed"
+        fi
 
         # Email notification
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-complete "$task_id" 2>/dev/null &
@@ -215,7 +226,14 @@ Check the PR and summary:
 REVIEW_EOF
     else
         err "Task $task_id failed with exit code $exit_code"
-        update_task_status "$task_file" "failed"
+
+        # Capture last error line from log as error_message
+        local error_msg="exit code $exit_code"
+        if [[ -f "$log_file" && -s "$log_file" ]]; then
+            error_msg=$(tail -5 "$log_file" 2>/dev/null | grep -i "error\|fail\|exception" | tail -1 | head -c 200)
+            [[ -z "$error_msg" ]] && error_msg="exit code $exit_code"
+        fi
+        update_task_status "$task_file" "failed" "error_message=$error_msg"
 
         # Email notification
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-failed "$task_id" 2>/dev/null &
