@@ -166,12 +166,120 @@ def review_reason(meta: dict, category: str, filename: str) -> str:
 # ── API Routes ───────────────────────────────────────────
 
 
+def _get_machine_identity() -> dict:
+    """Get machine name, chip, OS version, role from system commands and config."""
+    identity: dict[str, Any] = {}
+
+    # Hostname
+    try:
+        result = subprocess.run(["hostname", "-s"], capture_output=True, text=True, timeout=3)
+        identity["machine_name"] = result.stdout.strip() if result.returncode == 0 else "unknown"
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        identity["machine_name"] = "unknown"
+
+    # Chip model
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            capture_output=True, text=True, timeout=3,
+        )
+        identity["chip"] = result.stdout.strip() if result.returncode == 0 else "unknown"
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        identity["chip"] = "unknown"
+
+    # OS version
+    try:
+        name_result = subprocess.run(
+            ["sw_vers", "-productName"], capture_output=True, text=True, timeout=3,
+        )
+        ver_result = subprocess.run(
+            ["sw_vers", "-productVersion"], capture_output=True, text=True, timeout=3,
+        )
+        os_name = name_result.stdout.strip() if name_result.returncode == 0 else "macOS"
+        os_ver = ver_result.stdout.strip() if ver_result.returncode == 0 else ""
+        identity["os_version"] = f"{os_name} {os_ver}".strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        identity["os_version"] = "unknown"
+
+    # Core count
+    try:
+        result = subprocess.run(
+            ["sysctl", "-n", "hw.ncpu"], capture_output=True, text=True, timeout=3,
+        )
+        identity["core_count"] = int(result.stdout.strip()) if result.returncode == 0 else 0
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        identity["core_count"] = 0
+
+    # Machine role from machine-role.conf
+    role_file = FLEET_DIR / "machine-role.conf"
+    identity["role"] = "unknown"
+    if role_file.exists():
+        try:
+            for line in role_file.read_text().splitlines():
+                if line.startswith("MACHINE_ROLE="):
+                    identity["role"] = line.split("=", 1)[1].strip()
+                    break
+        except OSError:
+            pass
+
+    return identity
+
+
+# Cache machine identity (doesn't change during runtime)
+_machine_identity_cache: dict | None = None
+
+
+def get_machine_identity() -> dict:
+    global _machine_identity_cache
+    if _machine_identity_cache is None:
+        _machine_identity_cache = _get_machine_identity()
+    return _machine_identity_cache
+
+
+def _get_commander_last_seen() -> str | None:
+    """Check when Commander was last active (most recent task dispatch or SSH)."""
+    latest: float = 0
+
+    # Check task manifests for recent dispatches
+    if TASKS_DIR.exists():
+        for f in TASKS_DIR.glob("*.json"):
+            try:
+                mtime = f.stat().st_mtime
+                if mtime > latest:
+                    latest = mtime
+            except OSError:
+                pass
+
+    # Check review-queue for recent actions
+    if REPLY_ACTIONS_DIR.exists():
+        for f in REPLY_ACTIONS_DIR.glob("*.json"):
+            try:
+                mtime = f.stat().st_mtime
+                if mtime > latest:
+                    latest = mtime
+            except OSError:
+                pass
+
+    if latest == 0:
+        return None
+
+    delta = time.time() - latest
+    if delta < 60:
+        return f"{int(delta)}s ago"
+    if delta < 3600:
+        return f"{int(delta // 60)}m ago"
+    if delta < 86400:
+        return f"{int(delta // 3600)}h ago"
+    return f"{int(delta // 86400)}d ago"
+
+
 @app.get("/api/system")
 async def get_system():
     cpu_percent = psutil.cpu_percent(interval=0.5)
     cpu_count = psutil.cpu_count()
     mem = psutil.virtual_memory()
     disk = psutil.disk_usage("/")
+    identity = get_machine_identity()
     return {
         "cpu_percent": cpu_percent,
         "cpu_count": cpu_count,
@@ -180,8 +288,15 @@ async def get_system():
         "ram_percent": mem.percent,
         "disk_free_gb": round(disk.free / (1024**3)),
         "disk_total_gb": round(disk.total / (1024**3)),
+        "disk_percent": disk.percent,
         "uptime": get_uptime(),
         "timestamp": datetime.now().isoformat(),
+        "machine_name": identity["machine_name"],
+        "chip": identity["chip"],
+        "os_version": identity["os_version"],
+        "role": identity["role"],
+        "core_count": identity["core_count"],
+        "commander_last_seen": _get_commander_last_seen(),
     }
 
 
