@@ -105,6 +105,40 @@ If MACHINE_ROLE is `commander`, check for Worker feedback before greeting the us
    ```
    If there are open PRs not in the review queue (e.g., from a previous session), mention them.
 
+### Pre-check: Pending Messages
+
+Check for messages sent from the fleet dashboard:
+
+1. **Check pending messages:**
+   ```bash
+   cat ~/.claude-fleet/pending-messages.json 2>/dev/null
+   ```
+
+2. **If messages exist**, present them before the greeting:
+   ```
+   ── Dashboard Messages ────────────────────────
+   📋 DISPATCH  "Add unit tests for auth module"
+   🔧 FIX       "Fix login page CSS on mobile"
+   📝 NOTE      "Remember to update the README"
+   💬 INSTRUCT  "Use TypeScript for new files"
+   ──────────────────────────────────────────────
+   ```
+
+3. **Act on messages by type:**
+   - **dispatch/queue** — These create task manifests automatically. For Workers, check if a task was queued and start working on it. For Commander, acknowledge.
+   - **fix** — Treat as a bug fix request. Investigate and fix.
+   - **note** — Acknowledge and keep in mind for this session.
+   - **instruction** — Follow the instruction for this session.
+
+4. **After reading, mark messages as read** via the dashboard API:
+   ```bash
+   curl -s -X PATCH http://localhost:3003/api/messages/<msg_id> \
+     -H 'Content-Type: application/json' \
+     -d '{"status":"read"}' 2>/dev/null
+   ```
+
+5. **If no pending messages**, skip silently.
+
 ### Branch 1: Returning Project (project has CLAUDE.md)
 
 Read the project's `CLAUDE.md`. Greet with a one-line status:

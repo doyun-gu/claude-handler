@@ -29,6 +29,7 @@ body {
   font-size: 13px;
   line-height: 1.5;
   padding: 0;
+  padding-bottom: 60px;
 }
 
 /* ── Header ─────────────────────────────── */
@@ -236,7 +237,7 @@ tr.queued td { color: var(--text-dim); }
 /* ── Toast ──────────────────────────────── */
 .toast-container {
   position: fixed;
-  bottom: 16px;
+  bottom: 70px;
   right: 16px;
   z-index: 1000;
   display: flex;
@@ -427,6 +428,221 @@ tr.queued td { color: var(--text-dim); }
 /* ── Empty state ────────────────────────── */
 .empty { color: var(--text-dim); font-style: italic; padding: 8px 0; }
 
+/* ── Command bar ───────────────────────── */
+.command-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #161616;
+  border-top: 1px solid var(--border);
+  padding: 0;
+  z-index: 400;
+}
+.command-bar-messages {
+  max-height: 120px;
+  overflow-y: auto;
+  padding: 6px 20px 0;
+  border-bottom: 1px solid #2a2a2a;
+}
+.command-bar-messages:empty { display: none; border: none; padding: 0; }
+.cmd-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.cmd-msg .cmd-text { flex: 1; color: var(--text); }
+.cmd-msg .cmd-type {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 2px;
+  background: #2a2a2a;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.cmd-msg .cmd-type.dispatch { background: #1a3a4a; color: #7bc; }
+.cmd-msg .cmd-type.fix { background: #3a3a1a; color: #ba7; }
+.cmd-msg .cmd-type.note { background: #2a2a3a; color: #99b; }
+.cmd-msg .cmd-status {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+.cmd-msg .cmd-status.pending { color: var(--yellow); }
+.cmd-msg .cmd-status.read { color: var(--blue); }
+.cmd-msg .cmd-status.done { color: var(--green); }
+.command-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 20px;
+}
+.command-input-row input {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.command-input-row input:focus { border-color: #555; }
+.command-input-row input::placeholder { color: #555; }
+.cmd-send-btn {
+  padding: 8px 16px;
+  background: #2a3a2a;
+  border: 1px solid #3a5a3a;
+  border-radius: 4px;
+  color: #7b7;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+.cmd-send-btn:hover { background: #1a3a1a; }
+.cmd-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Pipeline view ─────────────────────── */
+.view-toggle {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-left: 12px;
+}
+.view-toggle-btn {
+  padding: 2px 10px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.view-toggle-btn:last-child { border-right: none; }
+.view-toggle-btn:hover { background: var(--bg-hover); color: var(--text); }
+.view-toggle-btn.active { background: #2a3a2a; color: var(--text-bright); }
+
+.pipeline-container {
+  display: flex;
+  gap: 20px;
+  overflow-x: auto;
+  padding: 8px 0 12px;
+}
+.pipeline-container.single-worker { justify-content: center; }
+
+.pipeline-column {
+  flex: 1;
+  min-width: 240px;
+  max-width: 400px;
+}
+.pipeline-header {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.pipeline-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  position: relative;
+  transition: border-color 0.3s, background 0.3s;
+}
+.pipeline-card.running {
+  border-left: 3px solid var(--blue);
+  animation: taskPulse 3s ease-in-out infinite;
+}
+.pipeline-card.queued {
+  border-left: 3px solid #444;
+  opacity: 0.7;
+}
+.pipeline-card.just-completed {
+  border-left: 3px solid var(--green);
+  animation: completeFlash 1.5s ease-out;
+}
+
+@keyframes taskPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.85; }
+}
+@keyframes completeFlash {
+  0% { background: #1a3a1a; border-color: var(--green); }
+  100% { background: var(--bg-card); border-color: var(--border); }
+}
+
+.pipeline-task-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-bright);
+  margin-bottom: 4px;
+}
+.pipeline-task-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.progress-bar-container {
+  height: 4px;
+  background: #2a2a2a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 1s linear, background 0.5s;
+}
+.progress-bar-fill.normal { background: var(--blue); }
+.progress-bar-fill.amber { background: var(--orange); }
+.progress-bar-fill.red { background: var(--red); }
+
+.pipeline-queue-connector {
+  margin-left: 16px;
+  padding-left: 12px;
+  border-left: 2px dashed #444;
+  position: relative;
+}
+.pipeline-queue-connector::before {
+  content: '';
+  position: absolute;
+  left: -5px;
+  top: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #444;
+}
+
+.pipeline-empty {
+  color: var(--text-dim);
+  font-style: italic;
+  text-align: center;
+  padding: 24px 0;
+  font-size: 13px;
+}
+
 /* ── Responsive ─────────────────────────── */
 @media (max-width: 768px) {
   /* 9/10. Prevent horizontal overflow */
@@ -547,6 +763,19 @@ tr.queued td { color: var(--text-dim); }
     display: inline-flex;
     align-items: center;
   }
+
+  /* 11. Command bar — full width, comfortable input */
+  .command-input-row { padding: 8px 12px; }
+  .command-input-row input { font-size: 16px; padding: 10px 12px; }
+  .cmd-send-btn { min-height: 44px; min-width: 44px; padding: 10px 14px; font-size: 13px; }
+  .command-bar-messages { padding: 6px 12px 0; }
+
+  /* 12. Pipeline — stack vertically on mobile */
+  .pipeline-container { flex-direction: column; }
+  .pipeline-column { max-width: none; min-width: 0; }
+
+  /* 13. Body padding for command bar */
+  body { padding-bottom: 70px; }
 }
 </style>
 </head>
@@ -633,8 +862,16 @@ tr.queued td { color: var(--text-dim); }
 
 <!-- Active Tasks -->
 <div class="section" id="active-section">
-  <div class="section-label">Active Tasks</div>
-  <div class="filter-bar" id="active-filters"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <div style="display:flex;align-items:center">
+      <span class="section-label" style="margin-bottom:0">Active Tasks</span>
+      <div class="view-toggle" id="view-toggle">
+        <button class="view-toggle-btn active" onclick="setActiveView('pipeline')">Pipeline</button>
+        <button class="view-toggle-btn" onclick="setActiveView('table')">Table</button>
+      </div>
+    </div>
+  </div>
+  <div class="filter-bar" id="active-filters" style="margin-top:6px"></div>
   <div id="active-body"></div>
 </div>
 
@@ -668,14 +905,26 @@ tr.queued td { color: var(--text-dim); }
   <div class="section-body" id="backlog-body" style="margin-top:6px"></div>
 </div>
 
+<!-- Command Bar -->
+<div class="command-bar" id="command-bar">
+  <div class="command-bar-messages" id="cmd-messages"></div>
+  <div class="command-input-row">
+    <input type="text" id="cmd-input" placeholder="Type a command or note for Claude..." autocomplete="off" onkeydown="if(event.key==='Enter')sendMessage()">
+    <button class="cmd-send-btn" id="cmd-send" onclick="sendMessage()">Send</button>
+  </div>
+</div>
+
 <div class="toast-container" id="toasts"></div>
 
 <script>
 const REFRESH = 10000;
+const AVG_TASK_DURATION = 600; // 10 min in seconds
 let lastFetch = 0;
 let currentTimeFilter = 'today';
 let currentProjectFilter = 'all';
+let currentActiveView = 'pipeline';
 let allTasks = [];
+let recentMessages = [];
 
 // ── Helpers ─────────────────────────────────
 
@@ -748,6 +997,15 @@ async function api(path) {
 async function apiPost(path, body) {
   const r = await fetch(path, {
     method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+async function apiPatch(path, body) {
+  const r = await fetch(path, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
@@ -891,6 +1149,15 @@ function renderFilterBar(containerId, tasks) {
   el.innerHTML = html;
 }
 
+function setActiveView(view) {
+  currentActiveView = view;
+  var btns = document.querySelectorAll('#view-toggle .view-toggle-btn');
+  for (var i = 0; i < btns.length; i++) {
+    btns[i].classList.toggle('active', btns[i].textContent.toLowerCase() === view);
+  }
+  renderActiveTasks(allTasks);
+}
+
 function rerender() {
   renderFilterBar('active-filters', allTasks);
   renderFilterBar('completed-filters', allTasks);
@@ -963,22 +1230,104 @@ function renderServices(svcs) {
   }
 }
 
-function renderActiveTasks(tasks) {
-  const all = tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; });
-  const active = all.filter(function(t) {
-    return currentProjectFilter === 'all' || (t.project_name || 'unknown') === currentProjectFilter;
-  });
-  const el = document.getElementById('active-body');
+function getTaskProgress(task) {
+  if (!task.started_at || task.status !== 'running') return 0;
+  var elapsed = (Date.now() - new Date(task.started_at).getTime()) / 1000;
+  return Math.min(elapsed / AVG_TASK_DURATION, 1);
+}
+
+function getProgressClass(progress) {
+  if (progress >= 1) return 'red';       // > 2x avg (100% and still going)
+  if (progress >= 0.8) return 'amber';   // approaching avg
+  return 'normal';
+}
+
+function renderPipelineView(active) {
+  var el = document.getElementById('active-body');
+
+  if (active.length === 0) {
+    el.innerHTML = '<div class="pipeline-empty">All workers idle</div>';
+    return;
+  }
+
+  // Group by project
+  var groups = {};
+  for (var i = 0; i < active.length; i++) {
+    var t = active[i];
+    var proj = t.project_name || 'unknown';
+    if (!groups[proj]) groups[proj] = { running: [], queued: [] };
+    if (t.status === 'running') groups[proj].running.push(t);
+    else groups[proj].queued.push(t);
+  }
+
+  var projectNames = Object.keys(groups).sort();
+  var singleWorker = projectNames.length === 1;
+
+  var html = '<div class="pipeline-container' + (singleWorker ? ' single-worker' : '') + '">';
+
+  for (var p = 0; p < projectNames.length; p++) {
+    var proj = projectNames[p];
+    var group = groups[proj];
+
+    html += '<div class="pipeline-column">';
+    html += '<div class="pipeline-header">' + esc(proj) + '</div>';
+
+    // Running tasks
+    for (var r = 0; r < group.running.length; r++) {
+      var task = group.running[r];
+      var progress = getTaskProgress(task);
+      var pctWidth = Math.max(5, Math.round(progress * 100));
+      var progressCls = getProgressClass(progress);
+      var dur = duration(task.started_at, null);
+      var pctLabel = '~' + Math.round(progress * 100) + '%';
+
+      html += '<div class="pipeline-card running">';
+      html += '<div class="pipeline-task-name">' + esc(shortSlug(task.id || task.slug)) + '</div>';
+      html += '<div class="pipeline-task-meta">';
+      html += badge('running');
+      html += '<span>' + dur + '</span>';
+      html += '<span>' + pctLabel + '</span>';
+      html += '</div>';
+      html += '<div class="progress-bar-container">';
+      html += '<div class="progress-bar-fill ' + progressCls + '" style="width:' + pctWidth + '%"></div>';
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // Queued tasks with connector
+    if (group.queued.length > 0) {
+      html += '<div class="pipeline-queue-connector">';
+      for (var q = 0; q < group.queued.length; q++) {
+        var qt = group.queued[q];
+        html += '<div class="pipeline-card queued">';
+        html += '<div class="pipeline-task-name">' + esc(shortSlug(qt.id || qt.slug)) + '</div>';
+        html += '<div class="pipeline-task-meta">' + badge('queued') + '</div>';
+        html += '</div>';
+      }
+      html += '</div>';
+    } else if (group.running.length > 0) {
+      html += '<div style="font-size:11px;color:var(--text-dim);margin-top:4px;margin-left:16px">No queue</div>';
+    }
+
+    html += '</div>'; // pipeline-column
+  }
+
+  html += '</div>'; // pipeline-container
+  el.innerHTML = html;
+}
+
+function renderTableView(active) {
+  var el = document.getElementById('active-body');
 
   if (active.length === 0) {
     el.innerHTML = '<div class="empty">No active tasks</div>';
     return;
   }
 
-  let html = '<table><thead><tr><th>Task</th><th>Project</th><th>Status</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Branch</th></tr></thead><tbody>';
-  for (let i = 0; i < active.length; i++) {
-    const t = active[i];
-    const cls = t.status === 'running' ? 'running' : 'queued';
+  var html = '<table><thead><tr><th>Task</th><th>Project</th><th>Status</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Branch</th></tr></thead><tbody>';
+  for (var i = 0; i < active.length; i++) {
+    var t = active[i];
+    var cls = t.status === 'running' ? 'running' : 'queued';
     html += '<tr class="' + cls + '">';
     html += '<td>' + esc(shortSlug(t.id || t.slug)) + '</td>';
     html += '<td>' + esc(t.project_name || '--') + '</td>';
@@ -989,6 +1338,19 @@ function renderActiveTasks(tasks) {
   }
   html += '</tbody></table>';
   el.innerHTML = html;
+}
+
+function renderActiveTasks(tasks) {
+  var all = tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; });
+  var active = all.filter(function(t) {
+    return currentProjectFilter === 'all' || (t.project_name || 'unknown') === currentProjectFilter;
+  });
+
+  if (currentActiveView === 'pipeline') {
+    renderPipelineView(active);
+  } else {
+    renderTableView(active);
+  }
 }
 
 function renderCompleted(tasks) {
@@ -1252,23 +1614,85 @@ function updateTimestamp() {
   document.getElementById('updated').textContent = ago + 's ago';
 }
 
+// ── Command bar ─────────────────────────────
+
+async function sendMessage() {
+  var input = document.getElementById('cmd-input');
+  var btn = document.getElementById('cmd-send');
+  var text = input.value.trim();
+  if (!text) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+
+  try {
+    var res = await apiPost('/api/messages', { text: text });
+    if (res.status === 'ok') {
+      toast('Message queued — Claude will pick this up', true);
+      input.value = '';
+      loadRecentMessages();
+    } else {
+      toast('Failed: ' + (res.message || ''), false);
+    }
+  } catch (e) {
+    toast('Error: ' + e.message, false);
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Send';
+}
+
+async function loadRecentMessages() {
+  try {
+    recentMessages = await api('/api/messages?limit=5');
+    renderMessages();
+  } catch (e) {
+    // silently fail
+  }
+}
+
+function renderMessages() {
+  var el = document.getElementById('cmd-messages');
+  if (recentMessages.length === 0) {
+    el.innerHTML = '';
+    return;
+  }
+
+  var html = '';
+  // Show in chronological order (oldest first, most recent at bottom near input)
+  var msgs = recentMessages.slice().reverse();
+  for (var i = 0; i < msgs.length; i++) {
+    var m = msgs[i];
+    var typeCls = (m.type === 'dispatch' || m.type === 'fix') ? ' ' + m.type : '';
+    html += '<div class="cmd-msg">';
+    html += '<span class="cmd-type' + typeCls + '">' + esc(m.type || 'instruction') + '</span>';
+    html += '<span class="cmd-text">' + esc(m.text) + '</span>';
+    html += '<span class="cmd-status ' + esc(m.status || 'pending') + '">' + esc(m.status || 'pending') + '</span>';
+    html += '<span style="font-size:10px;color:var(--text-dim)">' + timeAgo(m.sent_at) + '</span>';
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
 // ── Main refresh ────────────────────────────
 
 async function refresh() {
   try {
-    const [sys, svcs, tasks, review, backlog, events] = await Promise.all([
+    const [sys, svcs, tasks, review, backlog, events, messages] = await Promise.all([
       api('/api/system'),
       api('/api/services'),
       api('/api/tasks'),
       api('/api/review'),
       api('/api/backlog'),
       api('/api/events'),
+      api('/api/messages?limit=5'),
     ]);
 
     lastFetch = Date.now();
     document.getElementById('live-dot').className = 'live-dot';
 
     allTasks = tasks;
+    recentMessages = messages;
     renderSystem(sys);
     renderServices(svcs);
     renderEvents(events);
@@ -1278,6 +1702,7 @@ async function refresh() {
     renderCompleted(tasks);
     renderReview(review);
     renderBacklog(backlog);
+    renderMessages();
   } catch (e) {
     document.getElementById('live-dot').className = 'live-dot dead';
     console.error('Refresh failed:', e);

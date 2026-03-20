@@ -1146,6 +1146,184 @@ async def create_event(event: EventCreate):
     return {"status": "ok", "message": f"Event '{event.title}' added"}
 
 
+# ── Message Endpoints ──────────────────────────────────
+
+
+MESSAGES_FILE = FLEET_DIR / "messages.json"
+PENDING_MESSAGES_FILE = FLEET_DIR / "pending-messages.json"
+
+
+class MessageCreate(BaseModel):
+    text: str
+
+
+class MessageUpdate(BaseModel):
+    status: str  # read, done
+
+
+def _load_messages() -> list[dict]:
+    """Load messages from messages.json."""
+    if not MESSAGES_FILE.exists():
+        return []
+    try:
+        return json.loads(MESSAGES_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _save_messages(messages: list[dict]) -> None:
+    """Save messages to messages.json and sync pending."""
+    FLEET_DIR.mkdir(parents=True, exist_ok=True)
+    MESSAGES_FILE.write_text(json.dumps(messages, indent=2) + "\n")
+    # Sync pending-messages.json with unread messages
+    pending = [m for m in messages if m.get("status") == "pending"]
+    PENDING_MESSAGES_FILE.write_text(json.dumps(pending, indent=2) + "\n")
+
+
+def _parse_message_type(text: str) -> tuple[str, str]:
+    """Parse message type from prefix. Returns (type, cleaned_text)."""
+    lower = text.lower()
+    for prefix in ("dispatch:", "queue:"):
+        if lower.startswith(prefix):
+            return "dispatch", text[len(prefix):].strip()
+    if lower.startswith("fix:"):
+        return "fix", text[4:].strip()
+    if lower.startswith("note:"):
+        return "note", text[5:].strip()
+    return "instruction", text
+
+
+def _create_task_from_message(msg: dict) -> dict | None:
+    """Create a task manifest from a dispatch/fix message."""
+    msg_type = msg.get("type", "instruction")
+    if msg_type not in ("dispatch", "fix"):
+        return None
+
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    cleaned = msg.get("cleaned_text", msg.get("text", ""))
+    # Extract project name if mentioned
+    project_name = "claude-handler"  # default
+    if msg_type == "fix":
+        # Try to extract project from text like "fix: projectname - description"
+        parts = cleaned.split(" - ", 1)
+        if len(parts) == 2:
+            project_name = parts[0].strip()
+            cleaned = parts[1].strip()
+        parts2 = cleaned.split(" ", 1)
+        if len(parts2) == 2:
+            # Check if first word matches a known project
+            projects = []
+            if PROJECTS_FILE.exists():
+                try:
+                    pdata = json.loads(PROJECTS_FILE.read_text())
+                    projects = [p.get("name", "").lower() for p in pdata.get("projects", [])]
+                except (json.JSONDecodeError, OSError):
+                    pass
+            if parts2[0].lower() in projects:
+                project_name = parts2[0]
+                cleaned = parts2[1]
+
+    slug = re.sub(r"[^a-z0-9]+", "-", cleaned.lower())[:40].strip("-")
+    task_id = f"{ts}-{slug}"
+    branch = f"worker/{slug}-{datetime.now().strftime('%Y%m%d')}"
+
+    # Find project path
+    project_path = ""
+    if PROJECTS_FILE.exists():
+        try:
+            pdata = json.loads(PROJECTS_FILE.read_text())
+            for p in pdata.get("projects", []):
+                if p.get("name", "").lower() == project_name.lower():
+                    project_path = p.get("path", "")
+                    project_name = p.get("name", "")
+                    break
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    task = {
+        "id": task_id,
+        "slug": slug,
+        "status": "queued",
+        "project_name": project_name,
+        "project_path": project_path,
+        "branch": branch,
+        "prompt": cleaned,
+        "created_at": datetime.now().isoformat(),
+        "source": "dashboard_message",
+        "message_id": msg.get("id", ""),
+    }
+
+    TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    task_file = TASKS_DIR / f"{task_id}.json"
+    task_file.write_text(json.dumps(task, indent=2) + "\n")
+    return task
+
+
+@app.post("/api/messages")
+async def create_message(msg: MessageCreate):
+    """Save a new message from the dashboard."""
+    messages = _load_messages()
+    msg_type, cleaned = _parse_message_type(msg.text)
+    ts = datetime.now()
+    msg_id = ts.strftime("%Y%m%d-%H%M%S-") + f"{len(messages):04d}"
+
+    new_msg = {
+        "id": msg_id,
+        "text": msg.text,
+        "cleaned_text": cleaned,
+        "type": msg_type,
+        "sent_at": ts.isoformat(),
+        "sent_from": "dashboard",
+        "status": "pending",
+        "read_by": None,
+    }
+
+    messages.append(new_msg)
+    _save_messages(messages)
+
+    # If dispatch or fix type, also create a task manifest
+    task = None
+    if msg_type in ("dispatch", "fix"):
+        task = _create_task_from_message(new_msg)
+
+    result = {"status": "ok", "message": "Message queued — Claude will pick this up", "msg": new_msg}
+    if task:
+        result["task_created"] = task.get("id")
+    return result
+
+
+@app.get("/api/messages")
+async def get_messages(status: Optional[str] = Query(None), limit: int = Query(20)):
+    """List messages, optionally filtered by status."""
+    messages = _load_messages()
+    if status:
+        messages = [m for m in messages if m.get("status") == status]
+    # Return most recent first
+    messages.sort(key=lambda m: m.get("sent_at", ""), reverse=True)
+    return messages[:limit]
+
+
+@app.patch("/api/messages/{msg_id}")
+async def update_message(msg_id: str, update: MessageUpdate):
+    """Mark a message as read or done."""
+    messages = _load_messages()
+    found = False
+    for m in messages:
+        if m.get("id") == msg_id:
+            m["status"] = update.status
+            if update.status == "read":
+                m["read_by"] = "claude"
+                m["read_at"] = datetime.now().isoformat()
+            elif update.status == "done":
+                m["done_at"] = datetime.now().isoformat()
+            found = True
+            break
+    if not found:
+        return {"status": "error", "message": f"Message {msg_id} not found"}
+    _save_messages(messages)
+    return {"status": "ok", "message": f"Message {msg_id} marked as {update.status}"}
+
+
 # ── Static file serving ─────────────────────────────────
 
 
