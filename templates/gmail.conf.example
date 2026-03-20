@@ -1,0 +1,14 @@
+# Gmail Configuration for Fleet Notifications
+# Store this at: ~/.claude-fleet/secrets/gmail.conf
+#
+# To create a Gmail App Password:
+# 1. Go to https://myaccount.google.com/apppasswords
+# 2. You need 2-Step Verification enabled
+# 3. Generate an app password for "Mail"
+# 4. Copy the 16-character password below
+#
+# NEVER commit this file. It's in .gitignore.
+
+GMAIL_USER=you@gmail.com
+GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+GMAIL_TO=you@gmail.com

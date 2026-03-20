@@ -1,0 +1,14 @@
+[
+  {
+    "name": "my-webapp",
+    "path": "/Users/you/Developer/my-webapp",
+    "repo": "git@github.com:your-org/my-webapp.git",
+    "description": "Main SaaS product"
+  },
+  {
+    "name": "api-service",
+    "path": "/Users/you/Developer/api-service",
+    "repo": "git@github.com:your-org/api-service.git",
+    "description": "REST API backend"
+  }
+]

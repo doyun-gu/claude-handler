@@ -1,0 +1,17 @@
+#!/bin/bash
+# startup-hooks.sh — User-defined services to start on boot
+# Place at: ~/.claude-fleet/startup-hooks.sh
+#
+# fleet-startup.sh sources this file after starting core fleet services.
+# Add tmux sessions for your project-specific services here.
+#
+# Example: Start a web app dev server
+
+# if ! lsof -ti:3000 >/dev/null 2>&1; then
+#     tmux new-session -d -s my-webapp "cd ~/Developer/my-webapp && npm run dev"
+# fi
+
+# Example: Start an API server
+# if ! lsof -ti:8000 >/dev/null 2>&1; then
+#     tmux new-session -d -s my-api "cd ~/Developer/my-api && python -m uvicorn main:app --port 8000"
+# fi
