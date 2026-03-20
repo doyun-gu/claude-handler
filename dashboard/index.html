@@ -7,30 +7,36 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Fleet Dashboard</title>
 <style>
+/* ── Design System ────────────────────── */
 :root {
-  --bg: #0d1117;
-  --bg-card: #161b22;
-  --bg-card-hover: #1c2333;
-  --bg-input: #0d1117;
-  --border: #30363d;
-  --text: #e6edf3;
-  --text-dim: #8b949e;
-  --text-dimmer: #6e7681;
-  --accent: #58a6ff;
-  --accent-dim: #1f6feb33;
-  --green: #3fb950;
-  --green-dim: #23863633;
-  --red: #f85149;
-  --red-dim: #f8514933;
-  --yellow: #d29922;
-  --yellow-dim: #d2992233;
-  --orange: #db6d28;
-  --purple: #bc8cff;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow: 0 1px 3px rgba(0,0,0,.3);
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
-  --mono: "SF Mono", "Fira Code", "Cascadia Code", monospace;
+  --bg: #0f1117;
+  --surface: #1a1d24;
+  --surface-hover: #22252d;
+  --surface-elevated: #282c35;
+  --border: rgba(255,255,255,.06);
+  --border-active: rgba(255,255,255,.12);
+  --text-primary: #e8eaed;
+  --text-secondary: #8b8f96;
+  --text-tertiary: #5a5e66;
+  --accent: #3b82f6;
+  --accent-dim: rgba(59,130,246,.10);
+  --success: #22c55e;
+  --success-dim: rgba(34,197,94,.15);
+  --success-text: #4ade80;
+  --warning: #f59e0b;
+  --warning-dim: rgba(245,158,11,.12);
+  --warning-text: #fbbf24;
+  --error: #ef4444;
+  --error-dim: rgba(239,68,68,.12);
+  --error-text: #f87171;
+  --purple: #a855f7;
+  --purple-dim: rgba(168,85,247,.12);
+  --indigo: #6366f1;
+  --indigo-dim: rgba(99,102,241,.12);
+  --radius: 8px;
+  --radius-sm: 6px;
+  --font: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -38,40 +44,41 @@
 body {
   font-family: var(--font);
   background: var(--bg);
-  color: var(--text);
+  color: var(--text-primary);
   line-height: 1.5;
   min-height: 100vh;
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── Layout ────────────────────────────── */
-.app { max-width: 1200px; margin: 0 auto; padding: 16px; padding-bottom: 80px; }
+/* ── Layout ───────────────────────────── */
+.app { max-width: 1200px; margin: 0 auto; padding: 24px; padding-bottom: 80px; }
 
 header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 0;
-  margin-bottom: 8px;
+  padding: 16px 0;
+  margin-bottom: 12px;
   border-bottom: 1px solid var(--border);
 }
-header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.3px; }
-header .meta { font-size: 13px; color: var(--text-dim); }
-header .meta .uptime { color: var(--green); }
+header h1 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; color: var(--text-primary); }
+header .meta { font-size: 13px; color: var(--text-secondary); display: flex; align-items: center; gap: 8px; }
 
-/* ── Tabs ──────────────────────────────── */
+/* ── Tabs ─────────────────────────────── */
 .tabs {
   display: flex;
-  gap: 2px;
+  gap: 0;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
+  margin-bottom: 24px;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
 .tab {
   padding: 10px 16px;
-  font-size: 14px;
-  color: var(--text-dim);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
   cursor: pointer;
   border-bottom: 2px solid transparent;
   white-space: nowrap;
@@ -80,105 +87,120 @@ header .meta .uptime { color: var(--green); }
   user-select: none;
   -webkit-tap-highlight-color: transparent;
 }
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
+.tab:hover { color: var(--text-primary); }
+.tab.active { color: var(--text-primary); border-bottom-color: var(--accent); }
 .tab .badge {
   position: absolute;
-  top: 6px;
+  top: 8px;
   right: 4px;
-  background: var(--red);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
+  width: 7px;
+  height: 7px;
+  background: var(--error);
+  border-radius: 50%;
+  display: block;
 }
 .tab .badge:empty { display: none; }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
 
-/* ── Cards ─────────────────────────────── */
+/* ── Cards ────────────────────────────── */
 .card {
-  background: var(--bg-card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
   margin-bottom: 12px;
-  transition: background .15s;
 }
-.card:hover { background: var(--bg-card-hover); }
-.card h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
-.card .meta-row { font-size: 13px; color: var(--text-dim); margin-bottom: 4px; }
+.card h3 { font-size: 14px; font-weight: 500; margin-bottom: 8px; }
+.card .meta-row { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
 
-/* ── Metric Grid ───────────────────────── */
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.metric {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  text-align: center;
-}
-.metric .value { font-size: 28px; font-weight: 700; letter-spacing: -1px; }
-.metric .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
-.metric.green .value { color: var(--green); }
-.metric.red .value { color: var(--red); }
-.metric.yellow .value { color: var(--yellow); }
-.metric.accent .value { color: var(--accent); }
-
-/* ── Action Required Banner ────────────── */
-.action-banner {
-  border: 1px solid var(--red);
-  border-left: 4px solid var(--red);
-  background: var(--red-dim);
-  border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 16px;
-}
-.action-banner h2 {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--red);
-  margin-bottom: 10px;
+/* ── Section Header ───────────────────── */
+.section-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.section-header h2 {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+}
+
+/* ── Metric Grid ──────────────────────── */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.metric {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 16px;
+  text-align: center;
+}
+.metric .value {
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  color: var(--text-primary);
+}
+.metric .label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+.metric.alert .value { color: var(--warning-text); }
+
+/* ── Action Required Banner ───────────── */
+.action-banner {
+  border: 1px solid var(--error-dim);
+  border-left: 3px solid var(--error);
+  background: var(--error-dim);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 24px;
+}
+.action-banner h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--error-text);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 .action-banner .action-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 0;
-  border-top: 1px solid rgba(248,81,73,.2);
+  padding: 10px 0;
+  border-top: 1px solid rgba(239,68,68,.1);
   gap: 8px;
 }
 .action-banner .action-item:first-of-type { border-top: none; }
 .action-banner .action-item .info { flex: 1; min-width: 0; }
-.action-banner .action-item .name { font-weight: 600; font-size: 14px; }
-.action-banner .action-item .reason { font-size: 12px; color: var(--text-dim); }
+.action-banner .action-item .name { font-weight: 500; font-size: 14px; color: var(--text-primary); }
+.action-banner .action-item .reason { font-size: 12px; color: var(--text-secondary); }
 
 .all-clear {
-  background: var(--green-dim);
-  border: 1px solid var(--green);
+  background: var(--success-dim);
+  border: 1px solid rgba(34,197,94,.2);
   border-radius: var(--radius);
   padding: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
   text-align: center;
-  font-weight: 600;
-  color: var(--green);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--success-text);
 }
 
-/* ── Review Sections ───────────────────── */
+/* ── Review Sections ──────────────────── */
 .review-section {
   margin-bottom: 16px;
 }
@@ -187,7 +209,7 @@ header .meta .uptime { color: var(--green); }
   align-items: center;
   justify-content: space-between;
   padding: 10px 14px;
-  background: var(--bg-card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   cursor: pointer;
@@ -195,23 +217,25 @@ header .meta .uptime { color: var(--green); }
   -webkit-tap-highlight-color: transparent;
 }
 .review-section-header h3 {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   display: flex;
   align-items: center;
   gap: 8px;
+  color: var(--text-primary);
 }
 .review-section-header .count {
-  font-size: 12px;
-  color: var(--text-dim);
-  background: var(--bg);
-  padding: 2px 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: rgba(255,255,255,.06);
+  padding: 1px 7px;
   border-radius: 10px;
+  font-weight: 500;
 }
 .review-section-header .chevron {
-  color: var(--text-dim);
+  color: var(--text-tertiary);
   transition: transform .2s;
-  font-size: 12px;
+  font-size: 10px;
 }
 .review-section-header.expanded .chevron { transform: rotate(90deg); }
 .review-section-body {
@@ -221,23 +245,205 @@ header .meta .uptime { color: var(--green); }
   overflow: hidden;
 }
 .review-section.action-required .review-section-header {
-  border-left: 3px solid var(--red);
+  border-left: 3px solid var(--error);
+}
+.review-section.processing .review-section-header {
+  border-left: 3px solid var(--indigo);
 }
 .review-section.low-priority .review-section-header {
-  border-left: 3px solid var(--yellow);
+  border-left: 3px solid var(--text-tertiary);
 }
 .review-section.dismissed .review-section-header {
-  border-left: 3px solid var(--text-dimmer);
+  border-left: 3px solid rgba(255,255,255,.04);
 }
 
-/* ── Review Item ───────────────────────── */
+/* ── Live Update Indicators ───────────── */
+@keyframes value-pulse {
+  0% { background: rgba(59,130,246,.2); }
+  100% { background: transparent; }
+}
+.value-changed {
+  animation: value-pulse 1.5s ease-out;
+  border-radius: 4px;
+}
+.live-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  background: var(--success);
+  border-radius: 50%;
+  margin-right: 6px;
+  animation: live-blink 2s ease-in-out infinite;
+}
+@keyframes live-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .3; }
+}
+.update-counter {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-left: 8px;
+}
+
+/* ── Button Loading State ─────────────── */
+.btn.loading {
+  pointer-events: none;
+  opacity: .7;
+  position: relative;
+}
+.btn.loading .btn-text { visibility: hidden; }
+.btn.loading::after {
+  content: '';
+  position: absolute;
+  width: 12px; height: 12px;
+  top: 50%; left: 50%;
+  margin: -6px 0 0 -6px;
+  border: 2px solid rgba(255,255,255,.2);
+  border-top-color: var(--text-primary);
+  border-radius: 50%;
+  animation: btn-spin .6s linear infinite;
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Diagnosis Summary ────────────────── */
+.ri-diagnosis {
+  margin-top: 8px;
+  padding: 10px 14px;
+  background: var(--error-dim);
+  border-left: 3px solid var(--error);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+.ri-diagnosis strong { color: var(--error-text); }
+.ri-diagnosis.medium { background: var(--warning-dim); border-left-color: var(--warning); }
+.ri-diagnosis.medium strong { color: var(--warning-text); }
+.ri-raw-toggle {
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 8px;
+  margin-top: 8px;
+  font-family: var(--font);
+}
+.ri-raw-toggle:hover { color: var(--text-secondary); border-color: var(--border-active); }
+.ri-raw-content { display: none; margin-top: 6px; }
+.ri-raw-content.open { display: block; }
+
+/* ── Processing State ─────────────────── */
+.review-item.processing {
+  opacity: .6;
+  position: relative;
+}
+.review-item.processing::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 10px,
+    rgba(255,255,255,.015) 10px,
+    rgba(255,255,255,.015) 20px
+  );
+  pointer-events: none;
+  border-radius: var(--radius-sm);
+}
+.processing-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  background: var(--indigo-dim);
+  border: 1px solid rgba(99,102,241,.2);
+  color: var(--indigo);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.processing-badge .spinner {
+  width: 10px; height: 10px;
+  border: 1.5px solid rgba(99,102,241,.3);
+  border-top-color: var(--indigo);
+  border-radius: 50%;
+  animation: btn-spin .6s linear infinite;
+}
+
+/* ── Review Detail Panel ──────────────── */
+.ri-detail {
+  display: none;
+  margin-top: 8px;
+  padding: 12px;
+  background: rgba(0,0,0,.15);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.ri-detail.open { display: block; }
+.ri-detail h4 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  font-weight: 600;
+}
+.ri-detail pre {
+  background: rgba(0,0,0,.3);
+  padding: 10px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 12px;
+  font-family: var(--mono);
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 400px;
+  overflow-y: auto;
+  color: var(--text-secondary);
+}
+.ri-detail .detail-section { margin-bottom: 12px; }
+.ri-detail .detail-section:last-child { margin-bottom: 0; }
+.ri-detail .pr-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 4px;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 500;
+}
+.ri-detail .pr-link:hover { opacity: .85; }
+.ri-expand-btn {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent);
+  background: none;
+  border: 1px solid rgba(59,130,246,.3);
+  border-radius: 4px;
+  padding: 3px 10px;
+  transition: all .15s;
+  font-family: var(--font);
+}
+.ri-expand-btn:hover { background: var(--accent-dim); }
+
+/* ── Review Item ──────────────────────── */
 .review-item {
   padding: 14px;
   border-bottom: 1px solid var(--border);
   transition: background .15s;
 }
 .review-item:last-child { border-bottom: none; }
-.review-item:hover { background: var(--bg-card-hover); }
+.review-item:hover { background: rgba(255,255,255,.02); }
 .review-item .ri-header {
   display: flex;
   align-items: flex-start;
@@ -245,23 +451,24 @@ header .meta .uptime { color: var(--green); }
   gap: 8px;
   margin-bottom: 6px;
 }
-.review-item .ri-title { font-weight: 600; font-size: 14px; }
+.review-item .ri-title { font-weight: 500; font-size: 14px; color: var(--text-primary); }
 .review-item .ri-project {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--accent);
   background: var(--accent-dim);
   padding: 1px 8px;
   border-radius: 10px;
   white-space: nowrap;
+  font-weight: 500;
 }
 .review-item .ri-meta {
   font-size: 12px;
-  color: var(--text-dim);
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 .review-item .ri-reason {
   font-size: 12px;
-  color: var(--yellow);
+  color: var(--text-secondary);
   margin-bottom: 8px;
 }
 .review-item .ri-actions {
@@ -270,60 +477,63 @@ header .meta .uptime { color: var(--green); }
   flex-wrap: wrap;
 }
 
-/* ── Buttons ───────────────────────────── */
+/* ── Buttons ──────────────────────────── */
 .btn {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 6px 12px;
+  padding: 5px 12px;
+  height: 28px;
   font-size: 12px;
   font-weight: 500;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-card);
-  color: var(--text);
+  border: 1px solid var(--border-active);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: background .15s, border-color .15s;
+  transition: background .15s, border-color .15s, color .15s;
   white-space: nowrap;
   font-family: var(--font);
   -webkit-tap-highlight-color: transparent;
 }
-.btn:hover { background: var(--bg-card-hover); border-color: var(--text-dim); }
+.btn:hover { background: rgba(255,255,255,.04); border-color: rgba(255,255,255,.18); color: var(--text-primary); }
 .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn.primary:hover { background: #1f6feb; }
-.btn.danger { color: var(--red); border-color: var(--red); }
-.btn.danger:hover { background: var(--red-dim); }
-.btn.success { color: var(--green); border-color: var(--green); }
-.btn.success:hover { background: var(--green-dim); }
-.btn.batch { padding: 4px 10px; font-size: 11px; }
+.btn.primary:hover { background: #2563eb; }
+.btn.danger { color: var(--error-text); border-color: rgba(239,68,68,.3); }
+.btn.danger:hover { background: var(--error-dim); }
+.btn.success { color: var(--success-text); border-color: rgba(34,197,94,.3); }
+.btn.success:hover { background: var(--success-dim); }
+.btn.batch { padding: 3px 10px; height: 24px; font-size: 11px; }
 .btn:disabled { opacity: .4; cursor: not-allowed; }
 
-/* ── Services Row ──────────────────────── */
+/* ── Services Row ─────────────────────── */
 .services-row {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
 }
 .svc-pill {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--bg-card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 20px;
   font-size: 13px;
+  color: var(--text-secondary);
 }
 .svc-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
-.svc-dot.up { background: var(--green); box-shadow: 0 0 6px var(--green); }
-.svc-dot.down { background: var(--red); }
+.svc-dot.up { background: var(--success); }
+.svc-dot.down { background: var(--error); }
 
-/* ── Tasks Table ───────────────────────── */
+/* ── Tasks Table ──────────────────────── */
 .task-list .task-row {
   display: grid;
   grid-template-columns: 1fr 100px 90px 120px;
@@ -332,8 +542,8 @@ header .meta .uptime { color: var(--green); }
   border-bottom: 1px solid var(--border);
   font-size: 13px;
 }
-.task-row:hover { background: var(--bg-card-hover); }
-.task-row .task-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-row:hover { background: rgba(255,255,255,.02); }
+.task-row .task-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
 .task-row .task-project { color: var(--accent); font-size: 12px; }
 .status-badge {
   display: inline-flex;
@@ -342,16 +552,18 @@ header .meta .uptime { color: var(--green); }
   padding: 2px 8px;
   border-radius: 10px;
   font-size: 11px;
-  font-weight: 600;
+  font-weight: 500;
   text-transform: uppercase;
+  letter-spacing: 0.3px;
 }
-.status-badge.completed { background: var(--green-dim); color: var(--green); }
+.status-badge.completed { background: var(--success-dim); color: var(--success-text); }
 .status-badge.running { background: var(--accent-dim); color: var(--accent); }
-.status-badge.queued { background: var(--yellow-dim); color: var(--yellow); }
-.status-badge.failed { background: var(--red-dim); color: var(--red); }
-.status-badge.blocked { background: var(--red-dim); color: var(--red); }
+.status-badge.queued { background: rgba(255,255,255,.06); color: var(--text-secondary); }
+.status-badge.failed { background: var(--error-dim); color: var(--error-text); }
+.status-badge.blocked { background: var(--error-dim); color: var(--error-text); }
+.status-badge.merged { background: var(--purple-dim); color: var(--purple); }
 
-/* ── Notifications Tab ─────────────────── */
+/* ── Notifications Tab ────────────────── */
 .notif-status-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -359,15 +571,15 @@ header .meta .uptime { color: var(--green); }
   margin-bottom: 16px;
 }
 .notif-status-item {
-  background: var(--bg-card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px;
 }
-.notif-status-item .ns-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-.notif-status-item .ns-value { font-size: 16px; font-weight: 600; }
-.notif-status-item .ns-value.ok { color: var(--green); }
-.notif-status-item .ns-value.bad { color: var(--red); }
+.notif-status-item .ns-label { font-size: 11px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; }
+.notif-status-item .ns-value { font-size: 14px; font-weight: 500; color: var(--text-primary); }
+.notif-status-item .ns-value.ok { color: var(--success-text); }
+.notif-status-item .ns-value.bad { color: var(--error-text); }
 
 .notif-history .nh-row {
   display: grid;
@@ -377,15 +589,15 @@ header .meta .uptime { color: var(--green); }
   border-bottom: 1px solid var(--border);
   font-size: 13px;
 }
-.notif-history .nh-row:hover { background: var(--bg-card-hover); }
-.nh-time { color: var(--text-dim); font-family: var(--mono); font-size: 12px; }
-.nh-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notif-history .nh-row:hover { background: rgba(255,255,255,.02); }
+.nh-time { color: var(--text-tertiary); font-family: var(--mono); font-size: 12px; }
+.nh-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); }
 .nh-task { color: var(--accent); font-size: 12px; }
 .nh-reply { font-size: 11px; }
-.nh-reply.yes { color: var(--green); }
-.nh-reply.no { color: var(--text-dimmer); }
+.nh-reply.yes { color: var(--success-text); }
+.nh-reply.no { color: var(--text-tertiary); }
 
-/* ── Preferences Toggles ──────────────── */
+/* ── Preferences Toggles ─────────────── */
 .pref-row {
   display: flex;
   align-items: center;
@@ -394,36 +606,36 @@ header .meta .uptime { color: var(--green); }
   border-bottom: 1px solid var(--border);
 }
 .pref-row:last-child { border-bottom: none; }
-.pref-label { font-size: 14px; }
+.pref-label { font-size: 13px; color: var(--text-primary); }
 .toggle {
   position: relative;
-  width: 44px;
-  height: 24px;
+  width: 40px;
+  height: 22px;
   cursor: pointer;
 }
 .toggle input { opacity: 0; width: 0; height: 0; }
 .toggle .slider {
   position: absolute;
   inset: 0;
-  background: var(--border);
-  border-radius: 12px;
+  background: var(--text-tertiary);
+  border-radius: 11px;
   transition: background .2s;
 }
 .toggle .slider::before {
   content: "";
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   left: 3px;
   top: 3px;
   background: #fff;
   border-radius: 50%;
   transition: transform .2s;
 }
-.toggle input:checked + .slider { background: var(--green); }
-.toggle input:checked + .slider::before { transform: translateX(20px); }
+.toggle input:checked + .slider { background: var(--accent); }
+.toggle input:checked + .slider::before { transform: translateX(18px); }
 
-/* ── Quick Actions Panel ───────────────── */
+/* ── Quick Actions Panel ──────────────── */
 .quick-actions {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -431,31 +643,36 @@ header .meta .uptime { color: var(--green); }
   margin-top: 16px;
 }
 .quick-actions input {
-  padding: 8px 12px;
-  background: var(--bg-input);
+  padding: 6px 12px;
+  height: 28px;
+  background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 14px;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 13px;
   font-family: var(--font);
 }
-.quick-actions input::placeholder { color: var(--text-dimmer); }
+.quick-actions input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.quick-actions input::placeholder { color: var(--text-tertiary); }
 
-/* ── Projects Grid ─────────────────────── */
+/* ── Projects Grid ────────────────────── */
 .projects-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 12px;
 }
 .project-card {
-  background: var(--bg-card);
+  background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
   transition: background .15s;
 }
-.project-card:hover { background: var(--bg-card-hover); }
-.project-card .pc-name { font-weight: 600; font-size: 16px; margin-bottom: 4px; }
+.project-card:hover { background: var(--surface-hover); }
+.project-card .pc-name { font-weight: 500; font-size: 14px; margin-bottom: 4px; color: var(--text-primary); }
 .project-card .pc-name .primary-badge {
   background: var(--accent-dim);
   color: var(--accent);
@@ -463,15 +680,15 @@ header .meta .uptime { color: var(--green); }
   padding: 1px 6px;
   border-radius: 8px;
   margin-left: 6px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
 }
-.project-card .pc-notes { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; }
-.project-card .pc-path { font-size: 11px; color: var(--text-dimmer); font-family: var(--mono); }
+.project-card .pc-notes { font-size: 13px; color: var(--text-secondary); margin-bottom: 8px; }
+.project-card .pc-path { font-size: 11px; color: var(--text-tertiary); font-family: var(--mono); }
 
-/* ── Log Viewer ────────────────────────── */
+/* ── Log Viewer ───────────────────────── */
 .log-viewer {
-  background: #010409;
+  background: rgba(0,0,0,.3);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 16px;
@@ -482,30 +699,56 @@ header .meta .uptime { color: var(--green); }
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-all;
-  color: var(--text-dim);
+  color: var(--text-secondary);
 }
 
-/* ── Section Header ────────────────────── */
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.section-header h2 { font-size: 16px; font-weight: 600; }
-
-/* ── Empty State ───────────────────────── */
+/* ── Empty State ──────────────────────── */
 .empty {
   text-align: center;
-  color: var(--text-dim);
+  color: var(--text-tertiary);
   padding: 40px 16px;
-  font-size: 14px;
+  font-size: 13px;
 }
 
-/* ── Responsive ────────────────────────── */
+/* ── Toast ────────────────────────────── */
+#toast {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 999;
+  box-shadow: 0 4px 12px rgba(0,0,0,.4);
+  max-width: 400px;
+  pointer-events: none;
+  transform: translateX(40px);
+  opacity: 0;
+  transition: all .3s cubic-bezier(.4,0,.2,1);
+}
+#toast.toast-success { border-left: 3px solid var(--success); }
+#toast.toast-error { border-left: 3px solid var(--error); }
+#toast.toast-info { border-left: 3px solid var(--accent); }
+#toast.toast-visible {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+/* ── Fade-in animation ────────────────── */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.fade-in { animation: fadeIn .2s ease-out; }
+
+/* ── Collapsible body ─────────────────── */
+.review-section-body.collapsed { display: none; }
+
+/* ── Responsive ───────────────────────── */
 @media (max-width: 768px) {
-  .app { padding: 10px; }
-  header h1 { font-size: 17px; }
+  .app { padding: 16px; }
+  header h1 { font-size: 16px; }
   .metrics { grid-template-columns: repeat(2, 1fr); }
   .task-list .task-row { grid-template-columns: 1fr 80px; }
   .task-row .task-project, .task-row > :nth-child(4) { display: none; }
@@ -513,21 +756,19 @@ header .meta .uptime { color: var(--green); }
   .nh-task { display: none; }
   .review-item .ri-actions { flex-direction: column; }
   .action-banner .action-item { flex-direction: column; align-items: flex-start; }
+  #toast { right: 16px; left: 16px; max-width: none; }
 }
 
 @media (max-width: 480px) {
+  .app { padding: 12px; }
   .metrics { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .metric { padding: 14px 12px; }
   .metric .value { font-size: 22px; }
   .tabs { gap: 0; }
-  .tab { padding: 8px 10px; font-size: 13px; }
+  .tab { padding: 8px 12px; font-size: 12px; }
+  .services-row { gap: 6px; }
+  .svc-pill { font-size: 12px; padding: 4px 10px; }
 }
-
-/* ── Fade-in animation ─────────────────── */
-@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.fade-in { animation: fadeIn .2s ease-out; }
-
-/* ── Collapsible body ──────────────────── */
-.review-section-body.collapsed { display: none; }
 </style>
 </head>
 <body>
@@ -536,7 +777,8 @@ header .meta .uptime { color: var(--green); }
     <h1>Fleet Dashboard</h1>
     <div class="meta">
       <span id="uptime-display"></span>
-      &middot; <span id="timestamp-display"></span>
+      <span>&middot;</span>
+      <span id="timestamp-display"></span>
     </div>
   </header>
 
@@ -549,7 +791,7 @@ header .meta .uptime { color: var(--green); }
     <div class="tab" data-tab="logs">Logs</div>
   </div>
 
-  <!-- ═══ OVERVIEW TAB ═══ -->
+  <!-- OVERVIEW TAB -->
   <div class="tab-content active" id="tab-overview">
     <div id="action-required-banner"></div>
     <div class="metrics" id="system-metrics"></div>
@@ -561,7 +803,7 @@ header .meta .uptime { color: var(--green); }
     </div>
   </div>
 
-  <!-- ═══ TASKS TAB ═══ -->
+  <!-- TASKS TAB -->
   <div class="tab-content" id="tab-tasks">
     <div class="section-header"><h2>All Tasks</h2></div>
     <div class="card">
@@ -569,47 +811,47 @@ header .meta .uptime { color: var(--green); }
     </div>
   </div>
 
-  <!-- ═══ REVIEW QUEUE TAB ═══ -->
+  <!-- REVIEW QUEUE TAB -->
   <div class="tab-content" id="tab-review">
     <div class="section-header"><h2>Review Queue</h2></div>
     <div id="review-sections"></div>
   </div>
 
-  <!-- ═══ NOTIFICATIONS TAB ═══ -->
+  <!-- NOTIFICATIONS TAB -->
   <div class="tab-content" id="tab-notifications">
     <div class="section-header">
       <h2>Email Notifications</h2>
-      <button class="btn primary" id="btn-test-email">Send Test Email</button>
+      <button class="btn primary" id="btn-test-email">Send Test</button>
     </div>
     <div class="notif-status-grid" id="notif-status"></div>
 
-    <div class="section-header" style="margin-top:16px"><h2>Quick Actions</h2></div>
+    <div class="section-header" style="margin-top:24px"><h2>Quick Actions</h2></div>
     <div class="card">
       <div class="quick-actions">
-        <input type="text" id="quick-action-input" placeholder="Type a command: MERGE task-slug, FIX description, QUEUE prompt...">
+        <input type="text" id="quick-action-input" placeholder="MERGE slug, FIX description, SKIP slug, QUEUE prompt...">
         <button class="btn primary" id="btn-quick-action">Send</button>
       </div>
-      <div style="font-size:12px;color:var(--text-dimmer);margin-top:8px;padding:0 2px;">
-        Commands: <code>MERGE &lt;slug&gt;</code> &middot; <code>FIX &lt;description&gt;</code> &middot; <code>SKIP &lt;slug&gt;</code> &middot; <code>QUEUE &lt;prompt&gt;</code>
+      <div style="font-size:11px;color:var(--text-tertiary);margin-top:8px;padding:0 2px;font-family:var(--mono);">
+        MERGE &middot; FIX &middot; SKIP &middot; QUEUE
       </div>
     </div>
 
-    <div class="section-header" style="margin-top:16px"><h2>Notification Preferences</h2></div>
+    <div class="section-header" style="margin-top:24px"><h2>Notification Preferences</h2></div>
     <div class="card" id="notif-prefs"></div>
 
-    <div class="section-header" style="margin-top:16px"><h2>Recent Notifications</h2></div>
+    <div class="section-header" style="margin-top:24px"><h2>Recent Notifications</h2></div>
     <div class="card">
       <div class="notif-history" id="notif-history"></div>
     </div>
   </div>
 
-  <!-- ═══ PROJECTS TAB ═══ -->
+  <!-- PROJECTS TAB -->
   <div class="tab-content" id="tab-projects">
     <div class="section-header"><h2>Registered Projects</h2></div>
     <div class="projects-grid" id="projects-grid"></div>
   </div>
 
-  <!-- ═══ LOGS TAB ═══ -->
+  <!-- LOGS TAB -->
   <div class="tab-content" id="tab-logs">
     <div class="section-header"><h2>Logs</h2></div>
     <div id="logs-list"></div>
@@ -626,6 +868,50 @@ header .meta .uptime { color: var(--green); }
 <script>
 // ── State ──────────────────────────────
 let reviewData = [];
+
+// ── Live Update System ─────────────────
+let lastValues = {};
+let lastRefreshTime = Date.now();
+let updateCounterInterval = null;
+
+function trackValue(key, newVal) {
+  const changed = lastValues[key] !== undefined && lastValues[key] !== newVal;
+  lastValues[key] = newVal;
+  return changed;
+}
+
+function pulseElement(el) {
+  if (!el) return;
+  el.classList.remove('value-changed');
+  void el.offsetWidth; // force reflow
+  el.classList.add('value-changed');
+}
+
+function startUpdateCounter() {
+  if (updateCounterInterval) return;
+  const counterEl = document.getElementById('update-counter');
+  if (!counterEl) return;
+  updateCounterInterval = setInterval(() => {
+    const secs = Math.floor((Date.now() - lastRefreshTime) / 1000);
+    if (secs < 5) {
+      counterEl.textContent = 'just now';
+    } else if (secs < 60) {
+      counterEl.textContent = secs + 's ago';
+    } else {
+      counterEl.textContent = Math.floor(secs/60) + 'm ago';
+    }
+  }, 1000);
+}
+
+
+
+// Track expanded panels across refreshes
+const expandedPanels = new Set();
+const expandedRaw = new Set();
+const expandedSections = new Set();
+const collapsedSections = new Set();
+
+
 let systemData = {};
 let autoRefreshTimer = null;
 const REFRESH_INTERVAL = 15000;
@@ -682,24 +968,26 @@ function escHtml(s) {
 async function loadSystem() {
   systemData = await api('/api/system');
   const el = document.getElementById('system-metrics');
-  const cpuClass = systemData.cpu_percent > 80 ? 'red' : systemData.cpu_percent > 50 ? 'yellow' : 'green';
-  const ramClass = systemData.ram_percent > 80 ? 'red' : systemData.ram_percent > 50 ? 'yellow' : 'green';
+  const cpuAlert = systemData.cpu_percent > 90 ? ' alert' : '';
+  const ramAlert = systemData.ram_percent > 90 ? ' alert' : '';
   el.innerHTML = `
-    <div class="metric ${cpuClass}">
+    <div class="metric${cpuAlert}">
       <div class="value">${systemData.cpu_percent}%</div>
       <div class="label">CPU (${systemData.cpu_count} cores)</div>
     </div>
-    <div class="metric ${ramClass}">
+    <div class="metric${ramAlert}">
       <div class="value">${systemData.ram_used_gb}/${systemData.ram_total_gb}</div>
       <div class="label">RAM (GB)</div>
     </div>
-    <div class="metric accent">
+    <div class="metric">
       <div class="value">${systemData.uptime}</div>
       <div class="label">Uptime</div>
     </div>
   `;
-  document.getElementById('uptime-display').innerHTML = `<span class="uptime">${systemData.uptime}</span> uptime`;
-  document.getElementById('timestamp-display').textContent = shortTime(systemData.timestamp);
+  document.getElementById('uptime-display').textContent = systemData.uptime + ' uptime';
+  document.getElementById('timestamp-display').innerHTML = '<span class="live-dot"></span>' + shortTime(systemData.timestamp) + '<span class="update-counter" id="update-counter">just now</span>';
+  lastRefreshTime = Date.now();
+  startUpdateCounter();
 }
 
 // ── Render: Services ───────────────────
@@ -732,14 +1020,18 @@ function renderTasks(tasks, containerId, limit) {
         <div class="task-project">${escHtml(t.project_name || '')}</div>
       </div>
       <div><span class="status-badge ${t.status}">${t.status}</span></div>
-      <div style="font-size:12px;color:var(--text-dim)">${timeAgo(time)}</div>
-      <div style="font-size:11px;color:var(--text-dimmer)">${escHtml(t.branch || '')}</div>
+      <div style="font-size:12px;color:var(--text-secondary)">${timeAgo(time)}</div>
+      <div style="font-size:11px;color:var(--text-tertiary);font-family:var(--mono);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.branch || '')}</div>
     </div>`;
   }).join('');
 }
 
 async function loadTasks() {
   const tasks = await api('/api/tasks');
+  const taskKey = tasks.map(t => t.slug + ':' + t.status).join(',');
+  if (trackValue('tasks', taskKey)) {
+    pulseElement(document.getElementById('recent-tasks'));
+  }
   renderTasks(tasks, 'recent-tasks', 5);
   renderTasks(tasks, 'all-tasks');
 }
@@ -748,12 +1040,16 @@ async function loadTasks() {
 async function loadReview() {
   reviewData = await api('/api/review');
   const actionItems = reviewData.filter(r => r.review_category === 'action_required');
+  const processingItems = reviewData.filter(r => r.review_category === 'processing');
   const lowItems = reviewData.filter(r => r.review_category === 'auto_mergeable');
   const dismissedItems = reviewData.filter(r => r.review_category === 'dismissed');
 
   // Update badge
   const badge = document.getElementById('review-badge');
   badge.textContent = actionItems.length || '';
+  if (trackValue('action_count', actionItems.length) && actionItems.length > 0) {
+    pulseElement(badge);
+  }
 
   // Render action required banner on overview
   renderActionBanner(actionItems);
@@ -772,6 +1068,11 @@ async function loadReview() {
       'action-required', 'Action Required', actionItems, true
     ));
   }
+  if (processingItems.length) {
+    container.appendChild(createReviewSection(
+      'processing', 'Processing', processingItems, true
+    ));
+  }
   if (lowItems.length) {
     container.appendChild(createReviewSection(
       'low-priority', 'Low Priority', lowItems, false, true
@@ -782,6 +1083,9 @@ async function loadReview() {
       'dismissed', 'Dismissed', dismissedItems, false
     ));
   }
+
+  // Restore expanded state after re-render
+  requestAnimationFrame(() => restoreExpandedState());
 }
 
 function renderActionBanner(items) {
@@ -791,7 +1095,7 @@ function renderActionBanner(items) {
     return;
   }
   el.innerHTML = `<div class="action-banner fade-in">
-    <h2>ACTION REQUIRED (${items.length})</h2>
+    <h2>Action Required (${items.length})</h2>
     ${items.map(item => {
       const meta = item.meta || {};
       const taskId = meta.task_id || item.filename;
@@ -802,7 +1106,7 @@ function renderActionBanner(items) {
         </div>
         <div style="display:flex;gap:4px;flex-shrink:0;">
           <button class="btn primary" onclick="switchToReview()">Review</button>
-          <button class="btn danger" onclick="dismissItem('${escHtml(taskId)}')">Dismiss</button>
+          <button class="btn danger" onclick="dismissItem('${escHtml(taskId)}',this)">Dismiss</button>
         </div>
       </div>`;
     }).join('')}
@@ -812,16 +1116,18 @@ function renderActionBanner(items) {
 function createReviewSection(className, title, items, expanded, showBatchMerge) {
   const section = document.createElement('div');
   section.className = 'review-section ' + className;
-  const emoji = className === 'action-required' ? '\u{1f534}' :
-                className === 'low-priority' ? '\u{1f4e6}' : '\u2717';
-  const headerClass = expanded ? 'expanded' : '';
-  const bodyClass = expanded ? '' : 'collapsed';
+  // Respect user's manual toggle over the default
+  let isExpanded = expanded;
+  if (collapsedSections.has(className)) isExpanded = false;
+  else if (expandedSections.has(className)) isExpanded = true;
+  const headerClass = isExpanded ? 'expanded' : '';
+  const bodyClass = isExpanded ? '' : 'collapsed';
 
   section.innerHTML = `
     <div class="review-section-header ${headerClass}" onclick="toggleSection(this)">
-      <h3>${emoji} ${title} <span class="count">${items.length}</span></h3>
+      <h3>${title} <span class="count">${items.length}</span></h3>
       <div style="display:flex;align-items:center;gap:8px;">
-        ${showBatchMerge ? '<button class="btn batch success" onclick="event.stopPropagation();batchMerge()">Merge All</button>' : ''}
+        ${showBatchMerge ? '<button class="btn batch success" onclick="event.stopPropagation();batchMerge(this)">Merge All</button>' : ''}
         <span class="chevron">\u25B6</span>
       </div>
     </div>
@@ -837,37 +1143,216 @@ function renderReviewItem(item, isDismissed) {
   const taskId = meta.task_id || item.filename;
   const project = meta.project || '';
   const branch = item.branch || '';
+  const prUrl = item.pr_url || '';
+  const prompt = item.prompt || '';
   const type = meta.type || '';
   const created = meta.created_at || '';
+  const body = item.body || '';
+  const summary = item.summary || '';
+  const isProcessing = item.review_category === 'processing';
+  const procStatus = (item.meta || {}).processing_status || 'Processing...';
   const dimStyle = isDismissed ? 'opacity:.5;' : '';
+  const procClass = isProcessing ? ' processing' : '';
+  const uid = 'ri-' + taskId.replace(/[^a-zA-Z0-9]/g, '-');
 
-  return `<div class="review-item" style="${dimStyle}">
+  const diagnosis = item.diagnosis || '';
+  const rawUid = uid + '-raw';
+
+  let detailSections = '';
+
+  // Diagnosis summary first (always visible when expanded)
+  if (diagnosis) {
+    const sevClass = diagnosis.includes('MEDIUM') ? 'medium' : '';
+    detailSections += `<div class="ri-diagnosis ${sevClass}">${diagnosis.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>')}</div>`;
+  }
+
+  // Collapsible raw details
+  let rawSections = '';
+  if (prompt) {
+    rawSections += `<div class="detail-section"><h4>Task Description</h4><pre>${escHtml(prompt)}</pre></div>`;
+  }
+  if (body) {
+    rawSections += `<div class="detail-section"><h4>Review Notes</h4><pre>${escHtml(body)}</pre></div>`;
+  }
+  if (summary) {
+    rawSections += `<div class="detail-section"><h4>Worker Summary</h4><pre>${escHtml(summary)}</pre></div>`;
+  }
+  if (prUrl) {
+    rawSections += `<div class="detail-section"><a class="pr-link" href="${escHtml(prUrl)}" target="_blank">View Pull Request on GitHub</a></div>`;
+  }
+
+  if (rawSections) {
+    if (diagnosis) {
+      // If there's a diagnosis, collapse raw details by default
+      detailSections += `<button class="ri-raw-toggle" onclick="toggleRaw('${rawUid}',this)">Show raw details</button>`;
+      detailSections += `<div class="ri-raw-content" id="${rawUid}">${rawSections}</div>`;
+    } else {
+      // No diagnosis — show details directly
+      detailSections += rawSections;
+    }
+  }
+
+  if (!detailSections) {
+    detailSections = '<div class="detail-section" style="color:var(--text-tertiary)">No details available</div>';
+  }
+
+  return `<div class="review-item${procClass}" style="${dimStyle}">
     <div class="ri-header">
       <div class="ri-title">${escHtml(taskId)}</div>
       ${project ? `<span class="ri-project">${escHtml(project)}</span>` : ''}
     </div>
     <div class="ri-meta">
       ${type ? `<span class="status-badge ${type === 'completed' ? 'completed' : type === 'blocked' ? 'blocked' : 'queued'}">${type}</span> ` : ''}
-      ${branch ? `<code style="font-size:11px;color:var(--text-dimmer)">${escHtml(branch)}</code> ` : ''}
-      ${created ? `&middot; ${timeAgo(created)}` : ''}
+      ${branch ? `<code style="font-size:11px;color:var(--text-tertiary);font-family:var(--mono)">${escHtml(branch)}</code> ` : ''}
+      ${created ? `\u00B7 ${timeAgo(created)}` : ''}
     </div>
-    <div class="ri-reason">${escHtml(item.reason)}</div>
+    <div class="ri-reason">${isProcessing ? `<span class="processing-badge"><span class="spinner"></span>${escHtml(procStatus)}</span>` : escHtml(item.reason)}</div>
     <div class="ri-actions">
-      ${!isDismissed ? `
-        <button class="btn primary" onclick="doAction('merge','${escHtml(taskId)}')">Merge</button>
-        <button class="btn" onclick="viewSummary('${escHtml(taskId)}')">View Summary</button>
-        <button class="btn danger" onclick="dismissItem('${escHtml(taskId)}')">Dismiss</button>
-      ` : `
-        <button class="btn" onclick="viewSummary('${escHtml(taskId)}')">View</button>
-      `}
+      <button class="ri-expand-btn" onclick="toggleDetail('${uid}',this)">Details</button>
+      ${prUrl ? `<a class="btn primary" href="${escHtml(prUrl)}" target="_blank" style="text-decoration:none">View PR</a>` : ''}
+      ${isProcessing ? '' : (!isDismissed ? reviewActions(type, taskId, prUrl) : '')}
+    </div>
+    <div class="ri-detail" id="${uid}">
+      ${detailSections}
     </div>
   </div>`;
+}
+
+
+function restoreExpandedState() {
+  // Restore detail panels
+  expandedPanels.forEach(uid => {
+    const el = document.getElementById(uid);
+    if (el) {
+      el.classList.add('open');
+      // Update the button text
+      const btn = el.previousElementSibling;
+      if (btn && btn.classList.contains('ri-raw-toggle')) {
+        btn.innerHTML = 'Hide raw details';
+      }
+      // Find the detail toggle button
+      const item = el.closest('.review-item');
+      if (item) {
+        const detailBtn = item.querySelector('.ri-expand-btn');
+        if (detailBtn && el.classList.contains('ri-detail')) {
+          detailBtn.innerHTML = 'Hide';
+        }
+      }
+    }
+  });
+  // Restore raw panels
+  expandedRaw.forEach(uid => {
+    const el = document.getElementById(uid);
+    if (el) {
+      el.classList.add('open');
+      const btn = el.previousElementSibling;
+      if (btn && btn.classList.contains('ri-raw-toggle')) {
+        btn.innerHTML = 'Hide raw details';
+      }
+    }
+  });
+  // Restore section states
+  document.querySelectorAll('.review-section').forEach(section => {
+    const cls = section.className.replace('review-section ', '').trim().split(' ')[0];
+    const header = section.querySelector('.review-section-header');
+    const body = section.querySelector('.review-section-body');
+    if (expandedSections.has(cls)) {
+      if (header) header.classList.add('expanded');
+      if (body) body.classList.remove('collapsed');
+    }
+  });
 }
 
 function toggleSection(header) {
   header.classList.toggle('expanded');
   const body = header.nextElementSibling;
   body.classList.toggle('collapsed');
+  // Track section state by class name
+  const section = header.closest('.review-section');
+  if (section) {
+    const cls = section.className.replace('review-section ', '').trim().split(' ')[0];
+    if (header.classList.contains('expanded')) {
+      expandedSections.add(cls);
+      collapsedSections.delete(cls);
+    } else {
+      collapsedSections.add(cls);
+      expandedSections.delete(cls);
+    }
+  }
+}
+
+
+function toggleRaw(uid, btn) {
+  const el = document.getElementById(uid);
+  if (!el) return;
+  const isOpen = el.classList.toggle('open');
+  btn.innerHTML = isOpen ? 'Hide raw details' : 'Show raw details';
+  if (isOpen) expandedRaw.add(uid); else expandedRaw.delete(uid);
+}
+
+function toggleDetail(uid, btn) {
+  const el = document.getElementById(uid);
+  if (!el) return;
+  const isOpen = el.classList.toggle('open');
+  btn.innerHTML = isOpen ? 'Hide' : 'Details';
+  if (isOpen) expandedPanels.add(uid); else expandedPanels.delete(uid);
+}
+
+function reviewActions(type, taskId, prUrl) {
+  const esc = escHtml(taskId);
+  const lower = taskId.toLowerCase();
+  // Bug/crash/error reports always get Fix buttons regardless of type
+  if (lower.includes('bug') || lower.includes('crash') || lower.includes('error')) {
+    return `
+      <button class="btn primary" onclick="promptFix('${esc}',this)">Fix</button>
+      <button class="btn" onclick="doAction('acknowledge','${esc}','',this)">Acknowledge</button>
+      <button class="btn danger" onclick="dismissItem('${esc}',this)">Dismiss</button>
+    `;
+  }
+  switch(type) {
+    case 'completed':
+      return `
+        ${prUrl ? `<button class="btn success" onclick="doAction('merge','${esc}','',this)">Merge PR</button>` : ''}
+        <button class="btn danger" onclick="dismissItem('${esc}',this)">Dismiss</button>
+      `;
+    case 'blocked':
+      return `
+        <button class="btn primary" onclick="promptFix('${esc}',this)">Fix</button>
+        <button class="btn" onclick="doAction('retry','${esc}','',this)">Retry</button>
+        <button class="btn danger" onclick="dismissItem('${esc}',this)">Dismiss</button>
+      `;
+    case 'failed':
+      return `
+        <button class="btn" onclick="doAction('retry','${esc}','',this)">Retry</button>
+        <button class="btn primary" onclick="promptFix('${esc}',this)">Fix</button>
+        <button class="btn danger" onclick="dismissItem('${esc}',this)">Dismiss</button>
+      `;
+    case 'decision_needed':
+      return `
+        <button class="btn success" onclick="doAction('approve','${esc}','',this)">Approve</button>
+        <button class="btn primary" onclick="promptFix('${esc}',this)">Override</button>
+        <button class="btn danger" onclick="dismissItem('${esc}',this)">Dismiss</button>
+      `;
+    default:
+      // Bug reports or unknown type
+      if (taskId.toLowerCase().includes('bug') || taskId.toLowerCase().includes('error')) {
+        return `
+          <button class="btn primary" onclick="promptFix('${esc}',this)">Fix</button>
+          <button class="btn" onclick="doAction('acknowledge','${esc}','',this)">Acknowledge</button>
+          <button class="btn danger" onclick="dismissItem('${esc}',this)">Dismiss</button>
+        `;
+      }
+      return `
+        <button class="btn success" onclick="doAction('merge','${esc}','',this)">Merge</button>
+        <button class="btn danger" onclick="dismissItem('${esc}',this)">Dismiss</button>
+      `;
+  }
+}
+
+function promptFix(taskId, btnEl) {
+  const desc = prompt('Describe the fix needed (or leave blank for auto-fix):');
+  if (desc === null) return;
+  doAction('fix', taskId, desc || 'Auto-fix requested from dashboard', btnEl);
 }
 
 function switchToReview() {
@@ -878,25 +1363,52 @@ function switchToReview() {
 }
 
 // ── Actions ────────────────────────────
-async function doAction(type, slug, description) {
-  const result = await apiPost('/api/action', {type, task_slug: slug, description: description || ''});
-  if (result.status === 'ok') {
-    showToast(`${type.toUpperCase()} action submitted for ${slug}`);
-    loadReview();
+async function doAction(type, slug, description, btnEl) {
+  const actionLabels = {
+    merge: 'Merge submitted',
+    skip: 'Dismissed',
+    fix: 'Fix task queued',
+    retry: 'Retry queued',
+    approve: 'Decision approved',
+    acknowledge: 'Acknowledged',
+  };
+
+  // Set loading state on the clicked button
+  if (btnEl) {
+    btnEl.classList.add('loading');
+    btnEl.innerHTML = `<span class="btn-text">${btnEl.textContent}</span>`;
+  }
+
+  try {
+    const result = await apiPost('/api/action', {type, task_slug: slug, description: description || ''});
+    if (result.status === 'ok') {
+      const label = actionLabels[type] || type.toUpperCase();
+      const detail = result.detail ? ` (${result.detail})` : '';
+      showToast(`${label} — ${slug}${detail}`, 'success');
+      loadReview();
+    } else {
+      showToast(`Failed: ${result.error || 'unknown error'}`, 'error');
+      if (btnEl) { btnEl.classList.remove('loading'); btnEl.textContent = btnEl.querySelector('.btn-text')?.textContent || type; }
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'error');
+    if (btnEl) { btnEl.classList.remove('loading'); btnEl.textContent = btnEl.querySelector('.btn-text')?.textContent || type; }
   }
 }
 
-async function dismissItem(slug) {
-  await doAction('skip', slug);
+async function dismissItem(slug, btnEl) {
+  await doAction('skip', slug, '', btnEl);
 }
 
-async function batchMerge() {
+async function batchMerge(btnEl) {
+  if (btnEl) { btnEl.classList.add('loading'); btnEl.innerHTML = '<span class="btn-text">Merge All</span>'; }
   const lowItems = reviewData.filter(r => r.review_category === 'auto_mergeable');
   for (const item of lowItems) {
     const taskId = (item.meta || {}).task_id || item.filename;
     await doAction('merge', taskId);
   }
-  showToast(`Batch merge submitted for ${lowItems.length} items`);
+  showToast(`Batch merge submitted for ${lowItems.length} items`, 'success');
+  if (btnEl) btnEl.classList.remove('loading');
   loadReview();
 }
 
@@ -997,7 +1509,7 @@ document.getElementById('btn-test-email').addEventListener('click', async () => 
   btn.textContent = 'Sending...';
   const result = await apiPost('/api/notifications/test', {});
   btn.disabled = false;
-  btn.textContent = 'Send Test Email';
+  btn.textContent = 'Send Test';
   showToast(result.message || result.status);
   loadNotifications();
 });
@@ -1014,7 +1526,7 @@ document.getElementById('btn-quick-action').addEventListener('click', () => {
     doAction(cmd.toLowerCase(), rest.split(' ')[0] || '', rest);
     input.value = '';
   } else {
-    showToast('Unknown command. Use MERGE, FIX, SKIP, or QUEUE.');
+    showToast('Unknown command. Use MERGE, FIX, SKIP, or QUEUE.', 'error');
   }
 });
 document.getElementById('quick-action-input').addEventListener('keydown', e => {
@@ -1054,11 +1566,11 @@ async function loadLogs() {
     <div class="card" style="cursor:pointer" onclick="openLog('${escHtml(l.task_id)}')">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div>
-          <strong>${escHtml(l.task_id)}</strong>
-          ${l.has_summary ? '<span style="color:var(--green);font-size:11px;margin-left:6px;">summary</span>' : ''}
+          <strong style="color:var(--text-primary)">${escHtml(l.task_id)}</strong>
+          ${l.has_summary ? '<span style="color:var(--success-text);font-size:11px;margin-left:6px;">summary</span>' : ''}
           ${l.has_log ? '<span style="color:var(--accent);font-size:11px;margin-left:6px;">log</span>' : ''}
         </div>
-        <span style="font-size:12px;color:var(--text-dim)">${timeAgo(l.modified)}</span>
+        <span style="font-size:12px;color:var(--text-tertiary)">${timeAgo(l.modified)}</span>
       </div>
     </div>
   `).join('');
@@ -1074,18 +1586,26 @@ async function openLog(taskId) {
 }
 
 // ── Toast ──────────────────────────────
-function showToast(msg) {
+function showToast(msg, type) {
+  type = type || 'success';
   let toast = document.getElementById('toast');
   if (!toast) {
     toast = document.createElement('div');
     toast.id = 'toast';
-    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-card);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.4);transition:opacity .3s;';
     document.body.appendChild(toast);
   }
+  toast.className = 'toast-' + type;
   toast.textContent = msg;
-  toast.style.opacity = '1';
+  // Reset and animate in
+  toast.classList.remove('toast-visible');
+  void toast.offsetWidth;
+  requestAnimationFrame(() => {
+    toast.classList.add('toast-visible');
+  });
   clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+  toast._timer = setTimeout(() => {
+    toast.classList.remove('toast-visible');
+  }, 3000);
 }
 
 // ── Init ───────────────────────────────
