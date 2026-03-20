@@ -187,14 +187,36 @@ WORKER RULES:
     # Run Claude
     local log_file="$LOGS_DIR/${task_id}.log"
 
-    "$CLAUDE_BIN" -p \
-        $perm_flag \
-        --max-turns 200 \
-        --append-system-prompt "$worker_prompt" \
-        "$task_prompt" \
-        2>&1 | tee "$log_file"
-
-    local exit_code=${PIPESTATUS[0]}
+    # Use script(1) for unbuffered log capture on macOS.
+    # Without this, tee buffers output and logs are 0 bytes until completion.
+    if command -v script &>/dev/null && [[ "$(uname)" == "Darwin" ]]; then
+        script -q "$log_file" \
+            "$CLAUDE_BIN" -p \
+            $perm_flag \
+            --max-turns 200 \
+            --append-system-prompt "$worker_prompt" \
+            "$task_prompt" \
+            2>&1
+        local exit_code=$?
+    elif command -v stdbuf &>/dev/null; then
+        # Linux: use stdbuf for line-buffered output
+        stdbuf -oL "$CLAUDE_BIN" -p \
+            $perm_flag \
+            --max-turns 200 \
+            --append-system-prompt "$worker_prompt" \
+            "$task_prompt" \
+            2>&1 | tee "$log_file"
+        local exit_code=${PIPESTATUS[0]}
+    else
+        # Fallback: unbuffered tee (logs may be delayed)
+        "$CLAUDE_BIN" -p \
+            $perm_flag \
+            --max-turns 200 \
+            --append-system-prompt "$worker_prompt" \
+            "$task_prompt" \
+            2>&1 | tee "$log_file"
+        local exit_code=${PIPESTATUS[0]}
+    fi
 
     # Check result
     if [[ $exit_code -eq 0 ]]; then
