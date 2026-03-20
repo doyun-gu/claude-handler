@@ -372,7 +372,7 @@ while true; do
 
         idle_secs=$(( $(date +%s) - IDLE_SINCE ))
 
-        if (( idle_secs >= 600 )); then
+        if (( idle_secs >= 120 )); then  # 2 min idle (per-project, not global)
             # 10 minutes idle — pick from backlog
             BACKLOG_FILE="$FLEET_DIR/backlog.json"
             if [[ -f "$BACKLOG_FILE" ]]; then
