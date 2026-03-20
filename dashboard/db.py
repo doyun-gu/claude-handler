@@ -619,6 +619,71 @@ def get_queue_depth_history(hours: int = 24) -> list[dict]:
     return snapshots
 
 
+def get_task_timeline(hours: int = 24) -> list[dict]:
+    """Get task start/end times for the timeline chart."""
+    conn = get_conn()
+    from datetime import timedelta
+    cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat() + "Z"
+    rows = conn.execute("""
+        SELECT id, slug, project_name, status, started_at, finished_at,
+               dispatched_at, budget_usd
+        FROM tasks
+        WHERE (started_at IS NOT NULL AND started_at != '' AND started_at >= ?)
+           OR (status = 'running')
+           OR (status = 'queued' AND dispatched_at >= ?)
+        ORDER BY started_at ASC
+    """, (cutoff, cutoff)).fetchall()
+    result = []
+    for row in rows:
+        d = dict(row)
+        # Calculate duration in minutes
+        if d.get("started_at"):
+            start = datetime.fromisoformat(d["started_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+            if d.get("finished_at"):
+                end = datetime.fromisoformat(d["finished_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+            else:
+                end = datetime.utcnow()
+            d["duration_minutes"] = round((end - start).total_seconds() / 60, 1)
+        else:
+            d["duration_minutes"] = 0
+        result.append(d)
+    return result
+
+
+def get_daily_costs(days: int = 7) -> list[dict]:
+    """Get daily cost breakdown by project from budget_usd fields."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT DATE(COALESCE(finished_at, started_at, dispatched_at)) as day,
+               project_name,
+               SUM(COALESCE(budget_usd, 0)) as total_budget,
+               COUNT(*) as task_count
+        FROM tasks
+        WHERE (finished_at IS NOT NULL AND finished_at != ''
+               OR started_at IS NOT NULL AND started_at != '')
+          AND DATE(COALESCE(finished_at, started_at, dispatched_at)) >= DATE('now', ?)
+          AND budget_usd IS NOT NULL AND budget_usd > 0
+        GROUP BY day, project_name
+        ORDER BY day ASC, project_name ASC
+    """, (f"-{days} days",)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_queue_by_project() -> list[dict]:
+    """Get tasks grouped by project with running/queued separation."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT id, slug, project_name, status, started_at, dispatched_at,
+               branch, budget_usd
+        FROM tasks
+        WHERE status IN ('running', 'queued')
+        ORDER BY
+            CASE WHEN status = 'running' THEN 0 ELSE 1 END,
+            dispatched_at ASC
+    """).fetchall()
+    return [dict(row) for row in rows]
+
+
 def log_auto_heal(bug_id: str, project: str, action: str, result: str, details: str = "") -> None:
     """Log an auto-heal action."""
     conn = get_conn()
