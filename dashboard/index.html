@@ -517,8 +517,11 @@ tr.queued td { color: var(--text-dim); }
 
 <!-- Review Queue -->
 <div class="section" id="review-section" style="display:none">
-  <div class="section-label">Review Queue</div>
-  <div id="review-body"></div>
+  <div class="section-header" onclick="toggleSection('review-section')">
+    <span class="section-label" style="margin-bottom:0">Review Queue <span id="review-count"></span></span>
+    <span class="toggle" id="review-toggle">[hide]</span>
+  </div>
+  <div class="section-body" id="review-body" style="margin-top:6px"></div>
 </div>
 
 <!-- Backlog -->
@@ -759,12 +762,15 @@ function renderCompleted(tasks) {
 function renderReview(items) {
   const sec = document.getElementById('review-section');
   const el = document.getElementById('review-body');
+  const countEl = document.getElementById('review-count');
 
   if (items.length === 0) {
     sec.style.display = 'none';
+    if (countEl) countEl.textContent = '';
     return;
   }
   sec.style.display = '';
+  if (countEl) countEl.textContent = '(' + items.length + ')';
 
   let html = '<table><thead><tr><th>Task</th><th>Project</th><th>Type</th><th class="hide-mobile">Reason</th><th>Action</th></tr></thead><tbody>';
   for (let i = 0; i < items.length; i++) {
@@ -775,12 +781,21 @@ function renderReview(items) {
     const project = meta.project || '--';
     const itemType = meta.type || 'unknown';
     const reason = item.reason || '';
+    const prStatus = item.pr_status || 'unknown';
     const safeId = taskId.replace(/'/g, "\\'");
 
     let actions = '';
     if (itemType === 'completed') {
-      actions += '<button class="btn btn-merge" onclick="doMerge(\'' + safeId + '\', this)">Merge</button> ';
-      actions += '<button class="btn btn-dismiss" onclick="doDismiss(\'' + safeId + '\', this)">Dismiss</button>';
+      if (prStatus === 'merged') {
+        actions += badge('merged') + ' ';
+        actions += '<button class="btn btn-dismiss" onclick="doDismiss(\'' + safeId + '\', this)">Dismiss</button>';
+      } else if (prStatus === 'closed') {
+        actions += '<span class="badge" style="background:#2a2a2a;color:#888">closed</span> ';
+        actions += '<button class="btn btn-dismiss" onclick="doDismiss(\'' + safeId + '\', this)">Dismiss</button>';
+      } else {
+        actions += '<button class="btn btn-merge" onclick="doMerge(\'' + safeId + '\', this)">Merge</button> ';
+        actions += '<button class="btn btn-dismiss" onclick="doDismiss(\'' + safeId + '\', this)">Dismiss</button>';
+      }
     } else if (itemType === 'failed' || itemType === 'blocked') {
       actions += '<button class="btn btn-fix" onclick="doAutofix(\'' + safeId + '\', this)">Auto-fix</button> ';
       actions += '<button class="btn btn-dismiss" onclick="doDismiss(\'' + safeId + '\', this)">Dismiss</button>';
