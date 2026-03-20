@@ -99,7 +99,7 @@ This is a solid heuristic. The main gap is that **adding a new domain requires e
   "slug": "architecture-self-review",
   "branch": "worker/architecture-self-review-20260320",
   "project_name": "claude-handler",
-  "project_path": "/Users/doyungu/Developer/claude-handler",
+  "project_path": "~/Developer/claude-handler",
   "subdir": "",
   "dispatched_at": "2026-03-20T01:58:55Z",
   "status": "running",
