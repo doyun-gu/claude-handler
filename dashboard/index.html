@@ -330,6 +330,45 @@ tr.queued td { color: var(--text-dim); }
 /* ── Collapsible ────────────────────────── */
 .collapsed .section-body { display: none; }
 
+/* ── Filter pills ──────────────────────── */
+.filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+  font-size: 12px;
+}
+.filter-bar .filter-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.filter-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+.filter-pill:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.filter-pill.active {
+  background: #2a3a2a;
+  color: var(--text-bright);
+  border-color: #4a5a4a;
+}
+
 /* ── Empty state ────────────────────────── */
 .empty { color: var(--text-dim); font-style: italic; padding: 8px 0; }
 
@@ -436,6 +475,16 @@ tr.queued td { color: var(--text-dim); }
 
   /* 8. Completed — task name + status badge only on mobile */
   .hide-mobile-completed { display: none; }
+
+  /* 10. Filter pills — wrap, 44px tap targets */
+  .filter-bar { gap: 4px; }
+  .filter-pill {
+    min-height: 36px;
+    padding: 6px 10px;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+  }
 }
 </style>
 </head>
@@ -503,6 +552,7 @@ tr.queued td { color: var(--text-dim); }
 <!-- Active Tasks -->
 <div class="section" id="active-section">
   <div class="section-label">Active Tasks</div>
+  <div class="filter-bar" id="active-filters"></div>
   <div id="active-body"></div>
 </div>
 
@@ -512,7 +562,10 @@ tr.queued td { color: var(--text-dim); }
     <span class="section-label" style="margin-bottom:0">Completed <span id="completed-count"></span></span>
     <span class="toggle" id="completed-toggle">[hide]</span>
   </div>
-  <div class="section-body" id="completed-body" style="margin-top:6px"></div>
+  <div class="section-body" id="completed-body" style="margin-top:6px">
+    <div class="filter-bar" id="completed-filters"></div>
+    <div id="completed-table"></div>
+  </div>
 </div>
 
 <!-- Review Queue -->
@@ -538,6 +591,9 @@ tr.queued td { color: var(--text-dim); }
 <script>
 const REFRESH = 10000;
 let lastFetch = 0;
+let currentTimeFilter = 'today';
+let currentProjectFilter = 'all';
+let allTasks = [];
 
 // ── Helpers ─────────────────────────────────
 
@@ -684,6 +740,82 @@ async function doAutofix(slug, btn) {
   }
 }
 
+// ── Filters ─────────────────────────────────
+
+function getProjectCounts(tasks) {
+  const counts = {};
+  for (let i = 0; i < tasks.length; i++) {
+    const p = tasks[i].project_name || 'unknown';
+    counts[p] = (counts[p] || 0) + 1;
+  }
+  return counts;
+}
+
+function timeCutoff(filter) {
+  if (filter === 'all') return 0;
+  if (filter === '7days') return Date.now() - 7 * 24 * 3600 * 1000;
+  // 'today' — start of today
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+}
+
+function filterTasks(tasks, statuses) {
+  const cutoff = timeCutoff(currentTimeFilter);
+  return tasks.filter(function(t) {
+    if (statuses && statuses.indexOf(t.status) === -1) return false;
+    if (currentProjectFilter !== 'all' && (t.project_name || 'unknown') !== currentProjectFilter) return false;
+    if (cutoff > 0) {
+      const ts = t.finished_at || t.merged_at || t.started_at || t.created_at;
+      if (!ts || new Date(ts).getTime() < cutoff) return false;
+    }
+    return true;
+  });
+}
+
+function setTimeFilter(val) {
+  currentTimeFilter = val;
+  rerender();
+}
+
+function setProjectFilter(val) {
+  currentProjectFilter = val;
+  rerender();
+}
+
+function renderFilterBar(containerId, tasks) {
+  let el = document.getElementById(containerId);
+  if (!el) return;
+
+  const projectCounts = getProjectCounts(tasks);
+  const projects = Object.keys(projectCounts).sort();
+
+  let html = '';
+  // Time pills
+  html += '<span class="filter-pill' + (currentTimeFilter === 'today' ? ' active' : '') + '" onclick="setTimeFilter(\'today\')">Today</span>';
+  html += '<span class="filter-pill' + (currentTimeFilter === '7days' ? ' active' : '') + '" onclick="setTimeFilter(\'7days\')">7 Days</span>';
+  html += '<span class="filter-pill' + (currentTimeFilter === 'all' ? ' active' : '') + '" onclick="setTimeFilter(\'all\')">All</span>';
+
+  // Separator
+  html += '<span class="filter-sep"></span>';
+
+  // Project pills
+  html += '<span class="filter-pill' + (currentProjectFilter === 'all' ? ' active' : '') + '" onclick="setProjectFilter(\'all\')">All Projects</span>';
+  for (let i = 0; i < projects.length; i++) {
+    const p = projects[i];
+    const isActive = currentProjectFilter === p ? ' active' : '';
+    html += '<span class="filter-pill' + isActive + '" onclick="setProjectFilter(\'' + esc(p).replace(/'/g, "\\'") + '\')">' + esc(p) + ' (' + projectCounts[p] + ')</span>';
+  }
+
+  el.innerHTML = html;
+}
+
+function rerender() {
+  renderFilterBar('active-filters', allTasks);
+  renderFilterBar('completed-filters', allTasks);
+  renderActiveTasks(allTasks);
+  renderCompleted(allTasks);
+}
+
 // ── Renderers ───────────────────────────────
 
 function renderSystem(data) {
@@ -703,7 +835,10 @@ function renderServices(svcs) {
 }
 
 function renderActiveTasks(tasks) {
-  const active = tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; });
+  const all = tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; });
+  const active = all.filter(function(t) {
+    return currentProjectFilter === 'all' || (t.project_name || 'unknown') === currentProjectFilter;
+  });
   const el = document.getElementById('active-body');
 
   if (active.length === 0) {
@@ -728,19 +863,24 @@ function renderActiveTasks(tasks) {
 }
 
 function renderCompleted(tasks) {
-  const cutoff = Date.now() - 24 * 3600 * 1000;
+  const cutoff = timeCutoff(currentTimeFilter);
+  const completedStatuses = ['completed', 'merged', 'failed'];
   const recent = tasks.filter(function(t) {
-    if (t.status !== 'completed' && t.status !== 'merged' && t.status !== 'failed') return false;
+    if (completedStatuses.indexOf(t.status) === -1) return false;
     const fin = t.finished_at || t.merged_at;
     if (!fin) return false;
-    return new Date(fin).getTime() > cutoff;
+    if (cutoff > 0 && new Date(fin).getTime() < cutoff) return false;
+    if (currentProjectFilter !== 'all' && (t.project_name || 'unknown') !== currentProjectFilter) return false;
+    return true;
   });
 
   document.getElementById('completed-count').textContent = '(' + recent.length + ')';
 
-  const el = document.getElementById('completed-body');
+  const el = document.getElementById('completed-table');
+  if (!el) return;
   if (recent.length === 0) {
-    el.innerHTML = '<div class="empty">No completed tasks in last 24h</div>';
+    const label = currentTimeFilter === 'today' ? 'today' : currentTimeFilter === '7days' ? 'last 7 days' : 'history';
+    el.innerHTML = '<div class="empty">No completed tasks in ' + label + '</div>';
     return;
   }
 
@@ -999,9 +1139,12 @@ async function refresh() {
     lastFetch = Date.now();
     document.getElementById('live-dot').className = 'live-dot';
 
+    allTasks = tasks;
     renderSystem(sys);
     renderServices(svcs);
     renderEvents(events);
+    renderFilterBar('active-filters', tasks);
+    renderFilterBar('completed-filters', tasks);
     renderActiveTasks(tasks);
     renderCompleted(tasks);
     renderReview(review);
