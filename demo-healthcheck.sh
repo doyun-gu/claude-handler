@@ -9,12 +9,18 @@
 set -uo pipefail
 export PATH=/opt/homebrew/bin:$HOME/.local/bin:$PATH
 
-DPSPICE_DIR="$HOME/Developer/dynamic-phasors/DPSpice-com"
 FLEET_DIR="$HOME/.claude-fleet"
-DEBUG_FILE="$DPSPICE_DIR/DEBUG_DETECTOR.md"
+HANDLER_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUG_DB="$FLEET_DIR/bug-db.json"
-API_PORT=8000
-WEB_PORT=3001
+
+# Detect LAN IP dynamically (macOS: en0, Linux: hostname -I)
+WORKER_IP=$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || hostname)
+
+# Project-specific settings — override via environment or projects.json
+DPSPICE_DIR="${HEALTHCHECK_PROJECT_DIR:-$HOME/Developer/dynamic-phasors/DPSpice-com}"
+DEBUG_FILE="$DPSPICE_DIR/DEBUG_DETECTOR.md"
+API_PORT="${HEALTHCHECK_API_PORT:-8000}"
+WEB_PORT="${HEALTHCHECK_WEB_PORT:-3001}"
 CHECK_INTERVAL=60       # seconds between health checks
 LOG_SCAN_INTERVAL=300   # seconds between deep log scans (5 min)
 LAST_LOG_SCAN=0
@@ -267,13 +273,13 @@ auto_heal_from_kb() {
     case "$slug" in
         *webpack*|*cache*|*pack.gz*|*hasStartTime*)
             log "${GREEN}AUTO-HEAL: Clearing webpack cache${NC}"
-            rm -rf ~/Developer/dynamic-phasors/DPSpice-com/web/.next/cache/webpack 2>/dev/null
+            rm -rf $DPSPICE_DIR/web/.next/cache/webpack 2>/dev/null
             echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] AUTO-HEALED: $slug (pattern: webpack-cache)" >> "$HEAL_LOG"
             return 0
             ;;
         *ENOENT*|*no-such-file*|*rename*)
             log "${GREEN}AUTO-HEAL: Cache file issue — clearing .next/cache${NC}"
-            rm -rf ~/Developer/dynamic-phasors/DPSpice-com/web/.next/cache 2>/dev/null
+            rm -rf $DPSPICE_DIR/web/.next/cache 2>/dev/null
             echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] AUTO-HEALED: $slug (pattern: enoent-cache)" >> "$HEAL_LOG"
             return 0
             ;;
@@ -288,7 +294,7 @@ auto_heal_from_kb() {
             ;;
         *crash*|*restart-failed*)
             log "${GREEN}AUTO-HEAL: Crash detected — clearing cache and restarting${NC}"
-            rm -rf ~/Developer/dynamic-phasors/DPSpice-com/web/.next/cache 2>/dev/null
+            rm -rf $DPSPICE_DIR/web/.next/cache 2>/dev/null
             echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] AUTO-HEALED: $slug (pattern: crash-restart)" >> "$HEAL_LOG"
             return 0
             ;;
@@ -604,8 +610,8 @@ created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 
 ## Preview Ready
 
-- **Preview (new):** http://192.168.1.114:$PREVIEW_PORT/app
-- **Stable demo:** http://192.168.1.114:3001/app
+- **Preview (new):** http://$WORKER_IP:$PREVIEW_PORT/app
+- **Stable demo:** http://$WORKER_IP:$WEB_PORT/app
 
 Compare side-by-side, then \`/worker-review\` to merge.
 PREVEOF
@@ -703,7 +709,7 @@ send_digest_if_needed() {
             rows+="<tr style='border-bottom:1px solid #E2E8F0;'><td style='padding:8px 0;'>$icon</td><td style='padding:8px 4px;font-weight:500;'>$fname</td><td style='color:#64748B;font-size:12px;'>$type</td><td>$pri_badge</td></tr>"
         done
 
-        "$HOME/Developer/claude-handler/fleet-notify.sh" \
+        "$HANDLER_DIR/fleet-notify.sh" \
             "Fleet Digest — ${current_count} items to review" \
             "<table style='width:100%;font-size:13px;border-collapse:collapse;'>$rows</table><div style='margin-top:16px;text-align:center;'><a href='mailto:${GMAIL_USER:-}?subject=Re:%20Fleet%20Digest&body=merge%20all' style='display:inline-block;padding:8px 24px;background:#166534;color:#FFFFFF;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;'>✓ Merge All</a></div>" \
             2>/dev/null &
@@ -766,7 +772,7 @@ while true; do
         maybe_create_worker_task
 
         # Check Gmail for reply commands
-        "$HOME/Developer/claude-handler/fleet-notify.sh" --check-replies 2>/dev/null
+        "$HANDLER_DIR/fleet-notify.sh" --check-replies 2>/dev/null
 
         # Send digest if new completed items since last digest
         send_digest_if_needed
