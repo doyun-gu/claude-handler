@@ -559,7 +559,7 @@ async def get_services():
     health_running = False
     try:
         result = subprocess.run(
-            ["tmux", "has-session", "-t", "health-checker"],
+            ["tmux", "has-session", "-t", "demo-health"],
             capture_output=True, timeout=3,
         )
         health_running = result.returncode == 0
