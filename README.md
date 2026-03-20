@@ -1,50 +1,320 @@
 # claude-handler
 
-A reusable framework that turns Claude Code into a Technical Co-Founder. Installs globally via symlinks so it activates automatically for every project.
+A framework that turns [Claude Code](https://docs.anthropic.com/en/docs/claude-code) into a Technical Co-Founder — and optionally runs a fleet of autonomous AI workers across multiple machines.
 
-## What It Does
+**Single machine:** Install in 30 seconds. Claude gets a product-focused persona, smart project onboarding, and session continuity across every project.
 
-- **Technical Co-Founder persona** — Claude pushes back on bad ideas, thinks product-first, and ships incrementally
-- **Smart onboarding** — auto-detects existing projects (tech stack, git history, file structure) and only asks what it can't figure out
-- **Personalisation** — `/cofounder` runs an adaptive interview and saves your profile to `~/.claude/user-profile.md` (never committed to the repo)
-- **Project CLAUDE.md generation** — creates per-project context files so future sessions start instantly
-- **Notion integration** — 10 slash commands for managing documentation in Notion
-- **Session continuity** — returning projects get a one-line "ready to work" instead of re-scanning
+**Two machines:** Add a Worker (Mac Mini, server, any always-on machine). Dispatch heavy tasks from your laptop. The Worker runs Claude autonomously, opens PRs, sends email notifications, and auto-heals crashed services — while you sleep.
+
+## What You Get
+
+| Feature | Description |
+|---------|-------------|
+| **Technical Co-Founder persona** | Claude pushes back on bad ideas, thinks product-first, ships incrementally |
+| **Smart onboarding** | Auto-detects tech stack, git history, file structure — only asks what it can't figure out |
+| **Personalisation** | `/cofounder` runs an interview, saves your profile. Claude remembers your preferences |
+| **CLAUDE.md generation** | Creates per-project context files so future sessions start instantly |
+| **Dual-machine fleet** | Commander dispatches tasks, Worker executes autonomously |
+| **Process supervision** | LaunchAgent keeps services alive across reboots |
+| **Health checking** | Auto-detects crashes, scans logs, creates bug database, auto-heals known issues |
+| **Email notifications** | Gmail alerts for task completion/failure with reply-to-action |
+| **Notion integration** | 10 slash commands for documentation management |
+
+## Architecture
+
+```mermaid
+graph TB
+    subgraph Commander["Commander (Laptop)"]
+        User([You]) --> Claude[Claude Code]
+        Claude --> Dispatch["/dispatch"]
+        Claude --> Review["/worker-review"]
+        Claude --> Fleet["/fleet"]
+    end
+
+    subgraph Worker["Worker (Server / Mac Mini)"]
+        Supervisor[Fleet Supervisor<br/>launchd] --> Daemon[Worker Daemon]
+        Supervisor --> Health[Health Checker]
+        Supervisor --> Dashboard[Fleet Dashboard<br/>:3003]
+        Daemon --> |picks up tasks| Queue[(Task Queue<br/>~/.claude-fleet/tasks/)]
+        Daemon --> |runs| WorkerClaude[Claude Code<br/>autonomous]
+        WorkerClaude --> |opens| PR[GitHub PR]
+        Health --> |auto-heals| Services[Project Services]
+        Health --> |logs| BugDB[(Bug Database)]
+    end
+
+    Dispatch --> |SSH + JSON| Queue
+    PR --> |review| Review
+    Queue --> |status| Fleet
+
+    style Commander fill:#f0f9ff,stroke:#3b82f6
+    style Worker fill:#f0fdf4,stroke:#22c55e
+```
+
+## Process Supervision
+
+The Worker machine uses macOS LaunchAgent to keep everything running:
+
+```mermaid
+graph LR
+    launchd[launchd<br/>on boot] --> Supervisor[fleet-supervisor.sh<br/>every 30s]
+    Supervisor --> |ensures alive| WD[worker-daemon<br/>tmux session]
+    Supervisor --> |ensures alive| HC[demo-health<br/>tmux session]
+    Supervisor --> |ensures alive| DB[fleet-dashboard<br/>tmux session]
+    WD --> |runs tasks| Claude[Claude Code]
+    HC --> |monitors| Services[Your Services]
+    HC --> |auto-heals| Services
+
+    style launchd fill:#fef3c7,stroke:#f59e0b
+    style Supervisor fill:#dbeafe,stroke:#3b82f6
+```
+
+## Task Lifecycle
+
+From dispatch to merged PR:
+
+```mermaid
+stateDiagram-v2
+    [*] --> Queued: /dispatch
+    Queued --> Running: daemon picks up
+    Running --> Completed: Claude finishes
+    Running --> Failed: error/timeout
+    Completed --> PR_Open: git push + gh pr create
+    PR_Open --> Reviewed: /worker-review
+    Reviewed --> Merged: approve
+    Reviewed --> Fix: request changes
+    Fix --> Queued: new task
+    Failed --> Queued: retry
+    Merged --> [*]
+```
+
+## Quick Start
+
+### Single Machine (Commander only)
+
+```bash
+git clone https://github.com/doyun-gu/claude-handler.git ~/claude-handler
+cd ~/claude-handler
+./install.sh    # Choose "Commander" when prompted
+```
+
+Restart Claude Code. You'll see:
+
+> *Tip: run `/cofounder` to personalise how I work with you.*
+
+Run `/cofounder` for a 2-minute interview that configures Claude's explanation depth, pushback level, and tool preferences.
+
+### Two Machines (Commander + Worker)
+
+```mermaid
+graph LR
+    A[1. Clone on both machines] --> B[2. Run install.sh]
+    B --> C{Choose role}
+    C --> |Laptop| D[Commander]
+    C --> |Server| E[Worker]
+    D --> F[3. Set up SSH to Worker]
+    E --> G[3. Install LaunchAgent]
+    F --> H[4. /dispatch from Claude]
+    G --> H
+
+    style D fill:#f0f9ff,stroke:#3b82f6
+    style E fill:#f0fdf4,stroke:#22c55e
+```
+
+**On your laptop (Commander):**
+```bash
+git clone https://github.com/doyun-gu/claude-handler.git ~/claude-handler
+cd ~/claude-handler
+./install.sh    # Choose "Commander"
+```
+
+**On your server (Worker):**
+```bash
+git clone https://github.com/doyun-gu/claude-handler.git ~/claude-handler
+cd ~/claude-handler
+./install.sh    # Choose "Worker", install LaunchAgent
+```
+
+**Connect them** — add to `~/.ssh/config` on Commander:
+```
+Host worker
+  HostName <worker-ip>
+  User <username>
+```
+
+**Dispatch your first task:**
+```
+> /dispatch
+"Add comprehensive tests for the auth module"
+```
+
+The Worker picks it up, runs Claude autonomously, opens a PR, and notifies you by email.
+
+## Setup Flow
+
+```
+                              clone repo
+                                  │
+                            ./install.sh
+                                  │
+                        ┌─────────┴─────────┐
+                        │                     │
+                   Commander              Worker
+                        │                     │
+                  Claude Code           LaunchAgent
+                  /cofounder            fleet-supervisor
+                  /dispatch ──────────► worker-daemon
+                  /worker-review ◄──── health-checker
+                        │             fleet-dashboard
+                     SSH setup
+                        │
+                   Ready to go
+```
+
+## Commands
+
+### Core
+
+| Command | Description |
+|---------|------------|
+| `/cofounder` | Personalisation interview — saves to `~/.claude/user-profile.md` |
+| `/startup` | Re-run session orientation. Refreshes context |
+| `/onboard` | Force full onboarding (regenerate CLAUDE.md) |
+| `/ready2modify` | Sync repo on a new machine |
+| `/workdone` | Save and push before switching machines |
+
+### Fleet (Commander)
+
+| Command | Description |
+|---------|------------|
+| `/fleet` | Cross-project dashboard — tasks, PRs, sync state |
+| `/dispatch` | Send a task to the Worker |
+| `/dispatch @project` | Target a specific project |
+| `/worker-status` | Check Worker task progress |
+| `/worker-review` | Review and merge completed Worker PRs |
+
+### Notion (optional)
+
+| Command | Description |
+|---------|------------|
+| `/notion-sync` | Sync Notion ↔ local markdown |
+| `/notion-progress` | Log git commits to Notion |
+| `/notion-done` | End-of-session handoff |
+| `/notion-status` | Status report from Notion |
+| `/notion-decision` | Log a technical decision |
+| `/notion-milestone` | Add/update a milestone |
+| `/notion-doc` | Create a documentation page |
+| `/notion-search` | Search the workspace |
+| `/notion-review` | Audit docs for quality |
+| `/notion-lecture` | Create a lecture note |
+
+## Configuration
+
+All config lives in `~/.claude-fleet/`. See `config.example/` for format reference.
+
+| File | Purpose |
+|------|---------|
+| `machine-role.conf` | Commander or Worker role |
+| `projects.json` | Registered projects and their services |
+| `secrets/gmail.conf` | Gmail credentials for notifications |
+
+### Email Notifications
+
+The Worker sends styled HTML emails for task completions and failures. Reply to take action:
+
+| Reply | Action |
+|-------|--------|
+| `merge` | Squash merge the PR |
+| `fix: [description]` | Create a fix task |
+| `skip` | Close PR, move on |
+| `queue: [task]` | Queue a new task |
+
+Setup: copy `config.example/gmail.conf.example` to `~/.claude-fleet/secrets/gmail.conf` and add your [Gmail App Password](https://myaccount.google.com/apppasswords).
+
+### Projects Registry
+
+Edit `~/.claude-fleet/projects.json` to register your projects. Each project can define services that the health checker monitors and auto-restarts:
+
+```json
+{
+  "projects": [{
+    "name": "my-app",
+    "path": "~/Developer/my-app",
+    "repo": "https://github.com/you/my-app.git",
+    "services": [{
+      "name": "api",
+      "port": 8000,
+      "start_cmd": "python -m uvicorn main:app --port 8000",
+      "health_url": "http://localhost:8000/health"
+    }]
+  }]
+}
+```
+
+## File Structure
+
+```
+claude-handler/
+├── install.sh                 # Interactive installer (Commander/Worker)
+├── install-launchd.sh         # Generate and install LaunchAgent
+├── uninstall.sh               # Remove symlinks, restore backups
+├── worker-daemon.sh           # Autonomous task runner
+├── fleet-startup.sh           # Boot-time service launcher
+├── fleet-supervisor.sh        # Process supervisor (keeps tmux alive)
+├── demo-healthcheck.sh        # Service health + log scanning + auto-heal
+├── fleet-notify.sh            # Gmail notifications + reply-to-action
+├── fleet-brain.py             # Task scheduling + PR management
+├── queue-manager.py           # Smart task queue with priorities
+├── sync-to-macbook.sh         # Sync to a second machine
+├── config.example/            # Example configs (safe to commit)
+│   ├── projects.json.example
+│   ├── machine-role.conf.example
+│   └── gmail.conf.example
+├── launchd/
+│   ├── com.fleet.supervisor.plist           # Generated (gitignored)
+│   └── com.fleet.supervisor.plist.template  # Template with __HOME__ markers
+├── dashboard/
+│   ├── api.py                 # FastAPI fleet dashboard backend
+│   └── index.html             # Dashboard frontend
+├── global/
+│   ├── CLAUDE.md              # Core persona + startup protocol
+│   └── commands/              # Slash commands (symlinked to ~/.claude/)
+├── notion/                    # Notion integration (optional)
+│   ├── commands/              # 10 Notion slash commands
+│   ├── templates/             # Document format definitions
+│   └── schemas/               # Database schemas
+├── handoff/                   # Sleep/wake sync between machines
+└── templates/
+    └── project-claude-md.md   # CLAUDE.md generation template
+```
 
 ## How It Works
 
-Claude Code loads `~/.claude/CLAUDE.md` at the start of every session. This framework symlinks its configuration there.
+Claude Code loads `~/.claude/CLAUDE.md` at the start of every session. This framework symlinks its own `CLAUDE.md` there, giving Claude a product-focused persona and smart onboarding protocol.
 
 **Session flow:**
 
 | Project State | What Happens |
 |--------------|-------------|
-| New (empty dir) | Full onboarding: asks product idea, target user, tech preferences, priorities |
-| Existing (has code, no CLAUDE.md) | Auto-scans project, asks only unknowable things, offers to generate CLAUDE.md |
-| Returning (has CLAUDE.md) | Reads it, says "Ready to work", no questions |
+| New (empty dir) | Full onboarding: asks product idea, target user, tech preferences |
+| Existing (has code, no CLAUDE.md) | Auto-scans project, asks only unknowable things |
+| Returning (has CLAUDE.md) | Reads it, says "Ready to work" |
 
-## Install
+**Worker flow:**
 
-```bash
-git clone https://github.com/doyun-gu/claude-handler.git ~/claude-handler
-cd ~/claude-handler
-chmod +x install.sh uninstall.sh
-./install.sh
-```
+1. Commander runs `/dispatch "build feature X"`
+2. Task JSON is created in `~/.claude-fleet/tasks/`
+3. Worker daemon picks it up, creates a `worker/` branch
+4. Claude runs autonomously (up to 200 turns)
+5. Worker pushes branch, opens PR, writes summary
+6. Commander gets notified, runs `/worker-review` to merge
 
-This creates symlinks from `~/.claude/` to this repo. Edits here apply globally — no re-install needed.
+## Customising
 
-If `~/.claude/CLAUDE.md` already exists, it's backed up to `~/.claude/CLAUDE.md.backup`.
+**Edit the persona:** Modify `global/CLAUDE.md` — changes apply instantly via symlink.
 
-### First Run
+**Add commands:** Create `.md` files in `global/commands/` and re-run `./install.sh`.
 
-After installing, start Claude Code in any project. You'll see a one-line nudge:
-
-> *Tip: run `/cofounder` to personalise how I work with you.*
-
-Run `/cofounder` to start the adaptive interview. It asks 2–4 rounds of questions based on your role and experience, then saves your profile to `~/.claude/user-profile.md`.
-
-On subsequent sessions, Claude reads the profile silently and applies your preferences (explanation depth, pushback level, tool choices, always/never rules) without asking again. Run `/cofounder` again any time to update your profile.
+**Notion setup:** See [notion/README.md](notion/README.md) for MCP server setup.
 
 ## Uninstall
 
@@ -52,248 +322,7 @@ On subsequent sessions, Claude reads the profile silently and applies your prefe
 ./uninstall.sh
 ```
 
-Removes symlinks and restores backups if they exist.
-
-## Commands
-
-### Core
-
-| Command | When to Use |
-|---------|------------|
-| `/cofounder` | Adaptive interview → saves profile to `~/.claude/user-profile.md` |
-| `/startup` | Re-run orientation. Refreshes context, flags outdated CLAUDE.md |
-| `/onboard` | Force full onboarding from scratch (regenerate CLAUDE.md) |
-| `/ready2modify` | Sync repo on a new machine (git pull, status check) |
-| `/workdone` | Save and push before switching machines |
-
-### Notion (optional — requires [Notion MCP setup](notion/README.md))
-
-| Command | What it does |
-|---------|-------------|
-| `/notion-sync` | Sync Notion ↔ local dev markdown files |
-| `/notion-progress` | Log today's git commits to Notion |
-| `/notion-done` | End-of-session: log everything, sync files |
-| `/notion-status` | Status report from Notion databases |
-| `/notion-decision` | Log a technical decision |
-| `/notion-milestone` | Add/update a milestone |
-| `/notion-doc` | Create a styled documentation page |
-| `/notion-search` | Search the workspace |
-| `/notion-review` | Audit docs for quality |
-| `/notion-lecture` | Create a lecture note |
-
-**Typical session lifecycle:**
-
-```
-/ready2modify → /startup → work → /workdone
-```
-
-## Customising
-
-### Edit the persona
-Modify `global/CLAUDE.md` — changes apply immediately via symlink.
-
-### Add commands
-Create `.md` files in `global/commands/` and re-run `./install.sh`.
-
-### Notion setup
-See [notion/README.md](notion/README.md) for Notion MCP server setup and workspace initialisation.
-
-### CLAUDE.md template
-See `templates/project-claude-md.md` for the reference structure used when generating per-project CLAUDE.md files.
-
-## Fleet System (Mac Mini Worker)
-
-The fleet system turns a Mac Mini into an autonomous worker that picks up tasks dispatched from your MacBook Pro (Commander), runs Claude sessions, and opens PRs — all unattended.
-
-### Quick Start: New Mac Mini Setup
-
-```bash
-# 1. Clone the repo
-git clone https://github.com/doyun-gu/claude-handler.git ~/Developer/claude-handler
-cd ~/Developer/claude-handler
-
-# 2. Install symlinks + fleet directories
-chmod +x install.sh
-./install.sh
-
-# 3. Set machine role
-mkdir -p ~/.claude-fleet
-echo 'MACHINE_ROLE=worker' > ~/.claude-fleet/machine-role.conf
-
-# 4. Ensure prerequisites
-#    - Claude CLI: ~/.local/bin/claude
-#    - GitHub CLI: gh auth login
-#    - tmux: brew install tmux
-
-# 5. Install the launchd plist (starts on boot, keeps everything alive)
-cp launchd/com.fleet.supervisor.plist ~/Library/LaunchAgents/
-launchctl load ~/Library/LaunchAgents/com.fleet.supervisor.plist
-
-# 6. Verify it's running
-tmux ls
-# Should show: worker-daemon, demo-health, fleet-dashboard
-```
-
-To stop the fleet: `launchctl unload ~/Library/LaunchAgents/com.fleet.supervisor.plist`
-
-### Process Supervision Architecture
-
-The fleet uses a three-layer supervision model:
-
-```
-launchd (macOS)
-  └─ fleet-supervisor.sh          ← kept alive by launchd (KeepAlive + RunAtLoad)
-       ├─ tmux: worker-daemon     ← picks tasks from queue, runs Claude sessions
-       ├─ tmux: demo-health       ← health checks, log scanning, auto-heal
-       └─ tmux: fleet-dashboard   ← web dashboard API (if api.py exists)
-```
-
-**launchd** (`com.fleet.supervisor.plist`) is the root. It starts `fleet-supervisor.sh` at login and restarts it if it crashes. The `ThrottleInterval` of 10 seconds prevents rapid restart loops.
-
-**fleet-supervisor.sh** runs an infinite loop (every 30s) that checks whether each tmux session exists. If a session is dead, it recreates it with the correct startup command. This means individual tmux sessions can crash and recover without manual intervention.
-
-**tmux sessions** run the actual services. Each session is independent — killing one doesn't affect the others.
-
-| Session | Script | Purpose |
-|---------|--------|---------|
-| `worker-daemon` | `worker-daemon.sh` | Polls `~/.claude-fleet/tasks/` for queued tasks, runs Claude autonomously |
-| `demo-health` | `demo-healthcheck.sh` | Health checks, error detection, auto-heal, bug tracking |
-| `fleet-dashboard` | `dashboard/api.py` | REST API for the fleet web dashboard |
-
-### Bug Database (`bug-db.json`)
-
-The health checker maintains a JSON bug database at `~/.claude-fleet/bug-db.json` that tracks every error it detects across services.
-
-**Structure:** Each bug is keyed by a slug (e.g., `api-TypeError-missing-arg`, `web-crash`):
-
-```json
-{
-  "bugs": {
-    "api-TypeError-missing-arg": {
-      "severity": "high",
-      "description": "Python error in API: TypeError missing arg",
-      "first_seen": "2026-03-20T10:00:00Z",
-      "last_seen": "2026-03-20T11:05:00Z",
-      "occurrences": 3,
-      "status": "new",
-      "heal_count": 1,
-      "heal_timestamps": [1742468700.0],
-      "escalated": false,
-      "last_error": "Traceback (most recent call last)..."
-    }
-  }
-}
-```
-
-**Bug lifecycle:** `new` → auto-healed (`healed`) or dispatched to worker (`fixed`) or too many heals (`escalated`).
-
-**Auto-heal with cooldown protection:**
-
-1. When a bug is detected, the health checker first checks `~/.claude-fleet/bug-knowledge/*.md` for a known fix (bash commands in a fenced code block).
-2. If no KB match, it tries built-in pattern matching (webpack cache, ENOENT, port conflicts, crashes).
-3. **Cooldown** prevents heal loops: if a bug has been healed 3+ times in 300 seconds, auto-heal is skipped.
-4. **Escalation** at 10 total heals: the bug is marked `escalated` and auto-heal stops permanently for that slug.
-5. If 3+ new bugs or 1+ critical bug accumulates, the health checker auto-creates a worker task to investigate and fix them.
-
-The bug database is rendered to `DEBUG_DETECTOR.md` (in the monitored project directory) after every update, capped at 50 bugs sorted by last seen.
-
-### Troubleshooting
-
-**Health checker crash loop**
-
-Symptom: `demo-health` tmux session keeps dying and restarting.
-
-```bash
-# Check the log for the root cause
-tail -100 ~/.claude-fleet/logs/demo-health.log
-
-# Common cause: the monitored project directory doesn't exist
-ls ~/Developer/dynamic-phasors/DPSpice-com
-
-# Common cause: python3 not in PATH
-which python3
-
-# If the health checker isn't needed for your setup, just let it restart
-# harmlessly — the supervisor will keep trying every 30s but it won't
-# affect the worker daemon
-```
-
-**Dashboard shows all dashes**
-
-Symptom: The fleet dashboard UI loads but shows `—` for all metrics.
-
-```bash
-# Check if the dashboard API is actually running
-curl http://localhost:5111/health
-
-# Check if the tmux session exists
-tmux has-session -t fleet-dashboard 2>/dev/null && echo "running" || echo "dead"
-
-# Check the dashboard log for Python errors
-tail -50 ~/.claude-fleet/logs/dashboard.log
-
-# Common cause: missing Python dependencies
-cd ~/Developer/claude-handler/dashboard && pip3 install -r requirements.txt
-
-# Common cause: fleet data files don't exist yet
-ls ~/.claude-fleet/tasks/*.json  # needs at least one task to show data
-```
-
-**tmux sessions not restarting**
-
-Symptom: A tmux session dies and doesn't come back.
-
-```bash
-# Verify the supervisor is running
-pgrep -f fleet-supervisor.sh
-
-# If not, check launchd
-launchctl list | grep fleet
-
-# If launchd shows it but supervisor isn't running, check logs
-cat ~/.claude-fleet/logs/supervisor-stderr.log
-
-# Manual restart
-launchctl unload ~/Library/LaunchAgents/com.fleet.supervisor.plist
-launchctl load ~/Library/LaunchAgents/com.fleet.supervisor.plist
-
-# Nuclear option: start supervisor directly
-tmux new-session -d -s fleet-supervisor \
-  "cd ~/Developer/claude-handler && ./fleet-supervisor.sh"
-```
-
-## File Structure
-
-```
-claude-handler/
-├── README.md                          # This file
-├── CLAUDE.md                          # Meta: docs for this repo
-├── install.sh                         # Symlinks into ~/.claude/
-├── uninstall.sh                       # Removes symlinks
-├── worker-daemon.sh                   # Task queue runner (Claude sessions)
-├── fleet-supervisor.sh                # Process supervisor (restarts tmux sessions)
-├── demo-healthcheck.sh                # Health checks + bug tracking + auto-heal
-├── launchd/
-│   └── com.fleet.supervisor.plist     # macOS launchd agent for boot persistence
-├── dashboard/
-│   └── api.py                         # Fleet dashboard REST API
-├── global/
-│   ├── CLAUDE.md                      # Core — the global instructions
-│   └── commands/
-│       ├── cofounder.md               # /cofounder — personalisation
-│       ├── startup.md                 # /startup — session orientation
-│       ├── onboard.md                 # /onboard — full onboarding
-│       ├── ready2modify.md            # /ready2modify — machine sync
-│       └── workdone.md               # /workdone — save & push
-├── notion/                            # Notion integration
-│   ├── README.md                      # Notion-specific docs
-│   ├── setup.sh                       # MCP server registration
-│   ├── commands/                      # 10 Notion slash commands
-│   ├── templates/                     # Document format definitions
-│   └── schemas/                       # Database schemas
-└── templates/
-    └── project-claude-md.md           # CLAUDE.md reference template
-```
+Removes symlinks and restores backups. Fleet data in `~/.claude-fleet/` is preserved.
 
 ## Author
 
