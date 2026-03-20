@@ -45,6 +45,23 @@ if [[ ! -x "$CLAUDE_BIN" ]]; then
     exit 1
 fi
 
+# Detect line-buffered tee strategy
+# Without this, pipe buffering causes log files to be 0 bytes while tasks run
+if command -v unbuffer &>/dev/null; then
+    TEE_CMD="unbuffer tee"
+    log "Log buffering: using unbuffer (expect package)"
+elif command -v stdbuf &>/dev/null; then
+    TEE_CMD="stdbuf -oL tee"
+    log "Log buffering: using stdbuf"
+elif command -v gstdbuf &>/dev/null; then
+    # macOS Homebrew installs GNU stdbuf as gstdbuf
+    TEE_CMD="gstdbuf -oL tee"
+    log "Log buffering: using gstdbuf (Homebrew coreutils)"
+else
+    TEE_CMD=""
+    log "Log buffering: using script(1) fallback (unbuffer/stdbuf not found)"
+fi
+
 # Find the next queued task (oldest first)
 next_queued_task() {
     local oldest_file=""
@@ -184,17 +201,40 @@ WORKER RULES:
         perm_flag="--dangerously-skip-permissions"
     fi
 
-    # Run Claude
+    # Run Claude with line-buffered tee so logs are written in real-time
     local log_file="$LOGS_DIR/${task_id}.log"
 
-    "$CLAUDE_BIN" -p \
-        $perm_flag \
-        --max-turns 200 \
-        --append-system-prompt "$worker_prompt" \
-        "$task_prompt" \
-        2>&1 | tee "$log_file"
-
-    local exit_code=${PIPESTATUS[0]}
+    local exit_code
+    if [[ -n "$TEE_CMD" ]]; then
+        # unbuffer or stdbuf available — use line-buffered tee
+        "$CLAUDE_BIN" -p \
+            $perm_flag \
+            --max-turns 200 \
+            --append-system-prompt "$worker_prompt" \
+            "$task_prompt" \
+            2>&1 | $TEE_CMD "$log_file"
+        exit_code=${PIPESTATUS[0]}
+    else
+        # Fallback: python3 unbuffered tee (avoids script(1) escape sequences)
+        "$CLAUDE_BIN" -p \
+            $perm_flag \
+            --max-turns 200 \
+            --append-system-prompt "$worker_prompt" \
+            "$task_prompt" \
+            2>&1 | python3 -u -c "
+import sys
+with open('$log_file', 'w') as f:
+    while True:
+        line = sys.stdin.readline()
+        if not line:
+            break
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        f.write(line)
+        f.flush()
+"
+        exit_code=${PIPESTATUS[0]}
+    fi
 
     # Check result
     if [[ $exit_code -eq 0 ]]; then
