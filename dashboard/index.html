@@ -9,29 +9,30 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0d0d0d;
-  --bg-surface: #141414;
-  --bg-card: #1a1a1a;
-  --bg-hover: #222;
-  --border: #2a2a2a;
-  --border-subtle: #1f1f1f;
-  --text: #a0a0a0;
-  --text-dim: #666;
-  --text-bright: #e0e0e0;
-  --text-white: #f0f0f0;
-  --running: #3b82f6;
-  --running-bg: #1a2744;
-  --queued: #6b7280;
-  --queued-bg: #1a1a1a;
-  --completed: #22c55e;
-  --completed-bg: #132a1a;
-  --failed: #ef4444;
-  --failed-bg: #2a1414;
+  --bg: #0a0a0a;
+  --bg-surface: #111111;
+  --bg-card: #171717;
+  --bg-hover: #1e1e1e;
+  --border: #374151;
+  --border-subtle: #1f2937;
+  --text: #d1d5db;
+  --text-dim: #6b7280;
+  --text-bright: #f3f4f6;
+  --text-white: #ffffff;
+  --running: #3B82F6;
+  --running-bg: #1e3a5f;
+  --queued: #9CA3AF;
+  --queued-bg: #1f2937;
+  --completed: #22C55E;
+  --completed-bg: #14532d;
+  --failed: #EF4444;
+  --failed-bg: #7f1d1d;
   --merged: #8b5cf6;
-  --merged-bg: #1f1a33;
+  --merged-bg: #2e1065;
   --blocked: #f59e0b;
-  --blocked-bg: #2a2210;
-  --radius: 6px;
+  --blocked-bg: #78350f;
+  --radius: 8px;
+  --radius-sm: 6px;
 }
 
 body {
@@ -40,7 +41,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   line-height: 1.5;
-  min-width: 1200px;
+  min-width: 1100px;
 }
 
 /* ── Top Bar ───────────────────────────── */
@@ -122,6 +123,90 @@ body {
   gap: 20px;
 }
 
+/* ── Stat Cards Row ───────────────────── */
+.stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+.stat-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+}
+.stat-card-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+.stat-card-value {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-white);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  line-height: 1.2;
+}
+.stat-card-sub {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.trend-up { color: var(--completed); }
+.trend-down { color: var(--failed); }
+.trend-flat { color: var(--text-dim); }
+
+/* ── Task History Row ─────────────────── */
+.history-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+.history-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+}
+.history-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.history-card-period {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.history-card-total {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-white);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.history-breakdown {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+.history-tag {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  border: 1px solid var(--border-subtle);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+
 /* ── Kanban Pipeline ───────────────────── */
 .pipeline-label {
   font-size: 11px;
@@ -137,7 +222,7 @@ body {
 }
 .pipeline-col {
   flex: 1;
-  min-width: 0;
+  min-width: 280px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -150,11 +235,12 @@ body {
   border-bottom: 1px solid var(--border);
   font-size: 12px;
   font-weight: 600;
-  color: var(--text-bright);
+  color: var(--text-white);
   display: flex;
   align-items: center;
   justify-content: space-between;
   min-height: 42px;
+  background: var(--bg-card);
 }
 .col-header .task-count {
   font-size: 11px;
@@ -169,10 +255,26 @@ body {
   flex-direction: column;
 }
 
+/* Idle projects summary */
+.idle-summary {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--text-dim);
+  font-size: 12px;
+  margin-top: 8px;
+}
+.idle-summary-label {
+  font-weight: 500;
+  color: var(--text);
+  margin-right: 8px;
+}
+
 /* Running task card */
 .task-card {
   padding: 10px 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   margin-bottom: 6px;
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
   font-size: 12px;
@@ -181,7 +283,7 @@ body {
 
 .task-card.running {
   background: var(--running-bg);
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.4);
 }
 .task-card.queued {
   background: var(--queued-bg);
@@ -212,12 +314,12 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
-.badge-running { background: var(--running-bg); color: var(--running); border: 1px solid rgba(59,130,246,0.3); }
+.badge-running { background: var(--running-bg); color: var(--running); border: 1px solid rgba(59,130,246,0.4); }
 .badge-queued { background: var(--queued-bg); color: var(--queued); border: 1px solid var(--border); }
-.badge-completed { background: var(--completed-bg); color: var(--completed); border: 1px solid rgba(34,197,94,0.3); }
-.badge-failed { background: var(--failed-bg); color: var(--failed); border: 1px solid rgba(239,68,68,0.3); }
-.badge-merged { background: var(--merged-bg); color: var(--merged); border: 1px solid rgba(139,92,246,0.3); }
-.badge-blocked { background: var(--blocked-bg); color: var(--blocked); border: 1px solid rgba(245,158,11,0.3); }
+.badge-completed { background: var(--completed-bg); color: var(--completed); border: 1px solid rgba(34,197,94,0.4); }
+.badge-failed { background: var(--failed-bg); color: var(--failed); border: 1px solid rgba(239,68,68,0.4); }
+.badge-merged { background: var(--merged-bg); color: var(--merged); border: 1px solid rgba(139,92,246,0.4); }
+.badge-blocked { background: var(--blocked-bg); color: var(--blocked); border: 1px solid rgba(245,158,11,0.4); }
 
 .task-timer {
   margin-top: 6px;
@@ -229,7 +331,7 @@ body {
 }
 .timer-bar {
   flex: 1;
-  height: 3px;
+  height: 4px;
   background: rgba(59, 130, 246, 0.15);
   border-radius: 2px;
   overflow: hidden;
@@ -304,6 +406,13 @@ body {
 .chart-card canvas {
   max-height: 180px;
 }
+.chart-total {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-bright);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  float: right;
+}
 
 /* ── Review Queue ──────────────────────── */
 .section-box {
@@ -335,6 +444,7 @@ body {
   background: var(--bg-card);
   color: var(--text-dim);
   margin-left: 8px;
+  border: 1px solid var(--border-subtle);
 }
 .section-box-header .toggle {
   font-size: 11px;
@@ -394,11 +504,11 @@ tr:hover td { background: var(--bg-hover); }
 }
 .btn:hover { background: var(--bg-hover); color: var(--text-bright); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-merge { border-color: rgba(34,197,94,0.3); color: var(--completed); }
+.btn-merge { border-color: rgba(34,197,94,0.4); color: var(--completed); }
 .btn-merge:hover { background: var(--completed-bg); }
 .btn-dismiss { border-color: var(--border); color: var(--text-dim); }
 .btn-dismiss:hover { background: var(--bg-hover); }
-.btn-fix { border-color: rgba(245,158,11,0.3); color: var(--blocked); }
+.btn-fix { border-color: rgba(245,158,11,0.4); color: var(--blocked); }
 .btn-fix:hover { background: var(--blocked-bg); }
 
 .review-actions {
@@ -426,7 +536,7 @@ tr:hover td { background: var(--bg-hover); }
   transition: all 0.15s;
 }
 .filter-pill:hover { background: var(--bg-hover); color: var(--text); }
-.filter-pill.active { background: var(--running-bg); color: var(--running); border-color: rgba(59,130,246,0.3); }
+.filter-pill.active { background: var(--running-bg); color: var(--running); border-color: rgba(59,130,246,0.4); }
 
 /* ── Collapsed state ───────────────────── */
 .collapsed .section-box-body,
@@ -444,13 +554,13 @@ tr:hover td { background: var(--bg-hover); }
 }
 .toast {
   padding: 8px 16px;
-  border-radius: var(--radius);
+  border-radius: var(--radius-sm);
   font-size: 12px;
   animation: fadeIn 0.2s;
   max-width: 360px;
 }
-.toast-ok { background: var(--completed-bg); color: var(--completed); border: 1px solid rgba(34,197,94,0.3); }
-.toast-err { background: var(--failed-bg); color: var(--failed); border: 1px solid rgba(239,68,68,0.3); }
+.toast-ok { background: var(--completed-bg); color: var(--completed); border: 1px solid rgba(34,197,94,0.4); }
+.toast-err { background: var(--failed-bg); color: var(--failed); border: 1px solid rgba(239,68,68,0.4); }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
 
 /* ── Events bar ────────────────────────── */
@@ -468,8 +578,8 @@ tr:hover td { background: var(--bg-hover); }
   white-space: nowrap;
 }
 .event-chip.status-upcoming { background: var(--bg-card); color: var(--text-dim); border: 1px solid var(--border); }
-.event-chip.status-imminent { background: var(--blocked-bg); color: var(--blocked); border: 1px solid rgba(245,158,11,0.3); }
-.event-chip.status-active { background: var(--failed-bg); color: var(--failed); border: 1px solid rgba(239,68,68,0.3); }
+.event-chip.status-imminent { background: var(--blocked-bg); color: var(--blocked); border: 1px solid rgba(245,158,11,0.4); }
+.event-chip.status-active { background: var(--failed-bg); color: var(--failed); border: 1px solid rgba(239,68,68,0.4); }
 .event-chip.status-past { background: var(--bg-card); color: var(--text-dim); text-decoration: line-through; border: 1px solid var(--border-subtle); }
 .event-all-clear {
   padding: 3px 10px;
@@ -477,7 +587,7 @@ tr:hover td { background: var(--bg-hover); }
   background: var(--completed-bg);
   color: var(--completed);
   font-size: 11px;
-  border: 1px solid rgba(34,197,94,0.2);
+  border: 1px solid rgba(34,197,94,0.3);
 }
 .event-freeze-note {
   font-size: 10px;
@@ -626,10 +736,60 @@ tr:hover td { background: var(--bg-hover); }
     <button class="btn" onclick="openEventModal()" style="font-size:11px; padding:2px 8px">+ Event</button>
   </div>
 
+  <!-- Analytics Stat Cards -->
+  <div class="stat-cards" id="stat-cards">
+    <div class="stat-card">
+      <div class="stat-card-label">Completed Today</div>
+      <div class="stat-card-value" id="sc-today">--</div>
+      <div class="stat-card-sub" id="sc-trend">--</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-label">Avg Duration</div>
+      <div class="stat-card-value" id="sc-duration">--</div>
+      <div class="stat-card-sub">last 7 days</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-label">Success Rate</div>
+      <div class="stat-card-value" id="sc-success">--</div>
+      <div class="stat-card-sub">last 30 days</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-card-label">Queue Depth</div>
+      <div class="stat-card-value" id="sc-queue">--</div>
+      <div class="stat-card-sub" id="sc-running">--</div>
+    </div>
+  </div>
+
+  <!-- Task History Stats -->
+  <div class="history-cards" id="history-cards">
+    <div class="history-card">
+      <div class="history-card-header">
+        <span class="history-card-period">Today</span>
+        <span class="history-card-total" id="hist-today">--</span>
+      </div>
+      <div class="history-breakdown" id="hist-today-breakdown"></div>
+    </div>
+    <div class="history-card">
+      <div class="history-card-header">
+        <span class="history-card-period">This Week</span>
+        <span class="history-card-total" id="hist-week">--</span>
+      </div>
+      <div class="history-breakdown" id="hist-week-breakdown"></div>
+    </div>
+    <div class="history-card">
+      <div class="history-card-header">
+        <span class="history-card-period">This Month</span>
+        <span class="history-card-total" id="hist-month">--</span>
+      </div>
+      <div class="history-breakdown" id="hist-month-breakdown"></div>
+    </div>
+  </div>
+
   <!-- Kanban Pipeline -->
   <div>
     <div class="pipeline-label">Worker Pipeline</div>
     <div class="pipeline" id="pipeline"></div>
+    <div id="idle-summary"></div>
   </div>
 
   <!-- Charts -->
@@ -649,7 +809,7 @@ tr:hover td { background: var(--bg-hover); }
           <canvas id="chart-queue"></canvas>
         </div>
         <div class="chart-card">
-          <h3>Cost / Token Usage (7d)</h3>
+          <h3>Daily Cost <span class="chart-total" id="cost-total"></span></h3>
           <canvas id="chart-costs"></canvas>
         </div>
       </div>
@@ -868,77 +1028,140 @@ function renderServices(svcs) {
   }).join('');
 }
 
+function renderStatCards(analytics, history) {
+  // Today completed with trend arrow
+  const today = history.today || 0;
+  const yesterday = history.yesterday || 0;
+  document.getElementById('sc-today').textContent = today;
+
+  let trendHtml = '';
+  if (today > yesterday) {
+    trendHtml = '<span class="trend-up">\u2191 ' + (today - yesterday) + ' vs yesterday</span>';
+  } else if (today < yesterday) {
+    trendHtml = '<span class="trend-down">\u2193 ' + (yesterday - today) + ' vs yesterday</span>';
+  } else {
+    trendHtml = '<span class="trend-flat">\u2192 same as yesterday</span>';
+  }
+  document.getElementById('sc-trend').innerHTML = trendHtml;
+
+  // Average duration
+  const avgMin = analytics.avg_duration_min || 0;
+  if (avgMin >= 60) {
+    const h = Math.floor(avgMin / 60);
+    const m = Math.round(avgMin % 60);
+    document.getElementById('sc-duration').textContent = h + 'h ' + m + 'm';
+  } else {
+    document.getElementById('sc-duration').textContent = Math.round(avgMin) + 'm';
+  }
+
+  // Success rate
+  document.getElementById('sc-success').textContent = analytics.success_rate + '%';
+
+  // Queue depth
+  const queueDepth = analytics.queue_depth || 0;
+  const runningCount = analytics.running || 0;
+  document.getElementById('sc-queue').textContent = queueDepth;
+  document.getElementById('sc-running').textContent = runningCount + ' running';
+}
+
+function renderHistoryCards(data) {
+  document.getElementById('hist-today').textContent = data.today || 0;
+  document.getElementById('hist-week').textContent = data.week || 0;
+  document.getElementById('hist-month').textContent = data.month || 0;
+
+  renderBreakdown('hist-today-breakdown', data.today_by_project || {});
+  renderBreakdown('hist-week-breakdown', data.week_by_project || {});
+  renderBreakdown('hist-month-breakdown', data.month_by_project || {});
+}
+
+function renderBreakdown(elId, byProject) {
+  const el = document.getElementById(elId);
+  const entries = Object.entries(byProject).sort((a, b) => b[1] - a[1]);
+  if (entries.length === 0) {
+    el.innerHTML = '<span class="history-tag">no tasks</span>';
+    return;
+  }
+  el.innerHTML = entries.map(function([name, count]) {
+    return '<span class="history-tag">' + esc(name) + ' ' + count + '</span>';
+  }).join('');
+}
+
 function renderPipeline(queueData) {
-  const el = document.getElementById('pipeline');
+  const pipelineEl = document.getElementById('pipeline');
+  const idleSummaryEl = document.getElementById('idle-summary');
 
-  // Filter to only show projects with tasks (running or queued), plus all idle ones
-  // Hide 'unknown' column if it has no tasks
-  const hasWork = queueData.filter(p => p.running || p.queued.length > 0);
-  const idle = queueData.filter(p => !p.running && p.queued.length === 0 && p.project !== 'unknown');
+  // Split into active and idle
+  const active = queueData.filter(p => p.running || p.queued.length > 0);
+  const idle = queueData.filter(p => !p.running && p.queued.length === 0);
 
-  // Show projects with work first, then idle
-  const sorted = [...hasWork, ...idle];
-
-  if (sorted.length === 0) {
-    el.innerHTML = '<div class="col-idle" style="width:100%;min-height:100px">No projects registered</div>';
+  if (active.length === 0) {
+    pipelineEl.innerHTML = '<div class="col-idle" style="width:100%;min-height:80px;background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius)">All projects idle</div>';
+    if (idle.length > 0) {
+      idleSummaryEl.innerHTML = '<div class="idle-summary"><span class="idle-summary-label">' + idle.length + ' project' + (idle.length > 1 ? 's' : '') + ' idle:</span>' +
+        idle.map(p => esc(p.project)).join(', ') + '</div>';
+    } else {
+      idleSummaryEl.innerHTML = '';
+    }
     return;
   }
 
+  // Only show active project columns
   let html = '';
-  for (const proj of sorted) {
+  for (const proj of active) {
     const totalTasks = (proj.running ? 1 : 0) + proj.queued.length;
 
     html += '<div class="pipeline-col">';
     html += '<div class="col-header">';
     html += '<span>' + esc(proj.project) + '</span>';
-    if (totalTasks > 0) {
-      html += '<span class="task-count">' + totalTasks + ' task' + (totalTasks > 1 ? 's' : '') + '</span>';
-    }
+    html += '<span class="task-count">' + totalTasks + ' task' + (totalTasks > 1 ? 's' : '') + '</span>';
     html += '</div>';
     html += '<div class="col-body">';
 
-    if (!proj.running && proj.queued.length === 0) {
-      html += '<div class="col-idle">(idle)</div>';
-    } else {
-      // Running task
-      if (proj.running) {
-        const t = proj.running;
-        const slug = shortSlug(t.id || t.slug);
-        const elapsed = t.elapsed_display || duration(t.started_at);
-        // Estimate progress: assume budget * 60 min per $, cap at 100%
-        const budget = t.budget_usd || 10;
-        const elapsedSec = t.elapsed_seconds || 0;
-        const estimatedSec = budget * 60 * 60; // rough: $1 = 1hr
-        const pct = Math.min(Math.round((elapsedSec / Math.max(estimatedSec, 1)) * 100), 95);
+    // Running task
+    if (proj.running) {
+      const t = proj.running;
+      const slug = shortSlug(t.id || t.slug);
+      const elapsed = t.elapsed_display || duration(t.started_at);
+      const budget = t.budget_usd || 10;
+      const elapsedSec = t.elapsed_seconds || 0;
+      const estimatedSec = budget * 60 * 60;
+      const pct = Math.min(Math.round((elapsedSec / Math.max(estimatedSec, 1)) * 100), 95);
 
-        html += '<div class="task-card running">';
-        html += '<div class="task-card-top">';
-        html += '<span class="task-name">' + esc(slug) + '</span>';
-        html += badge('running');
-        html += '</div>';
-        html += '<div class="task-timer">';
-        html += '<span class="timer-text">' + esc(elapsed) + '</span>';
-        html += '<div class="timer-bar"><div class="timer-fill" style="width:' + pct + '%"></div></div>';
-        html += '</div>';
-        html += '</div>';
-      }
+      html += '<div class="task-card running">';
+      html += '<div class="task-card-top">';
+      html += '<span class="task-name">' + esc(slug) + '</span>';
+      html += badge('running');
+      html += '</div>';
+      html += '<div class="task-timer">';
+      html += '<span class="timer-text">' + esc(elapsed) + '</span>';
+      html += '<div class="timer-bar"><div class="timer-fill" style="width:' + pct + '%"></div></div>';
+      html += '</div>';
+      html += '</div>';
+    }
 
-      // Queued tasks
-      for (let i = 0; i < proj.queued.length; i++) {
-        const t = proj.queued[i];
-        const slug = shortSlug(t.id || t.slug);
-        html += '<div class="task-card queued">';
-        html += '<div class="task-card-top">';
-        html += '<span class="task-name"><span class="queue-number">' + (i + 1) + '.</span>' + esc(slug) + '</span>';
-        html += badge('queued');
-        html += '</div>';
-        html += '</div>';
-      }
+    // Queued tasks
+    for (let i = 0; i < proj.queued.length; i++) {
+      const t = proj.queued[i];
+      const slug = shortSlug(t.id || t.slug);
+      html += '<div class="task-card queued">';
+      html += '<div class="task-card-top">';
+      html += '<span class="task-name"><span class="queue-number">#' + (i + 1) + '</span>' + esc(slug) + '</span>';
+      html += badge('queued');
+      html += '</div>';
+      html += '</div>';
     }
 
     html += '</div></div>';
   }
-  el.innerHTML = html;
+  pipelineEl.innerHTML = html;
+
+  // Idle projects summary below pipeline
+  if (idle.length > 0) {
+    idleSummaryEl.innerHTML = '<div class="idle-summary"><span class="idle-summary-label">' + idle.length + ' project' + (idle.length > 1 ? 's' : '') + ' idle:</span>' +
+      idle.map(p => esc(p.project)).join(', ') + '</div>';
+  } else {
+    idleSummaryEl.innerHTML = '';
+  }
 }
 
 function renderCompleted(tasks) {
@@ -1206,19 +1429,18 @@ async function submitEvent() {
 // ── Charts ─────────────────────────────────
 
 const STATUS_COLORS = {
-  running: '#3b82f6',
-  completed: '#22c55e',
+  running: '#3B82F6',
+  completed: '#22C55E',
   merged: '#8b5cf6',
-  failed: '#ef4444',
-  queued: '#6b7280',
+  failed: '#EF4444',
+  queued: '#9CA3AF',
 };
-const PROJECT_COLORS = ['#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#84cc16'];
+const PROJECT_COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#8b5cf6', '#EF4444', '#06b6d4', '#ec4899', '#84cc16'];
 
 function renderTimelineChart(data) {
   const ctx = document.getElementById('chart-timeline');
   if (!ctx) return;
 
-  // Build horizontal bar data: each task is a bar from start to end
   const tasks = data.filter(t => t.started_at);
   const labels = tasks.map(t => shortSlug(t.id || t.slug));
   const barData = tasks.map(t => t.duration_minutes || 0);
@@ -1232,10 +1454,10 @@ function renderTimelineChart(data) {
       datasets: [{
         label: 'Duration (min)',
         data: barData,
-        backgroundColor: colors.map(c => c + '99'),
+        backgroundColor: colors.map(c => c + 'BB'),
         borderColor: colors,
         borderWidth: 1,
-        borderRadius: 2,
+        borderRadius: 4,
       }],
     },
     options: {
@@ -1255,12 +1477,12 @@ function renderTimelineChart(data) {
       },
       scales: {
         x: {
-          title: { display: true, text: 'Minutes', color: '#666', font: { size: 10 } },
-          ticks: { color: '#666', font: { size: 10 } },
-          grid: { color: '#1f1f1f' },
+          title: { display: true, text: 'Minutes', color: '#6b7280', font: { size: 10 } },
+          ticks: { color: '#6b7280', font: { size: 10 } },
+          grid: { color: '#1f2937' },
         },
         y: {
-          ticks: { color: '#888', font: { size: 10, family: '"SF Mono", "Fira Code", monospace' } },
+          ticks: { color: '#9CA3AF', font: { size: 10, family: '"SF Mono", "Fira Code", monospace' } },
           grid: { display: false },
         },
       },
@@ -1290,15 +1512,15 @@ function renderQueueChart(data) {
         {
           label: 'Queued',
           data: queued,
-          borderColor: '#f59e0b',
-          backgroundColor: 'rgba(245,158,11,0.08)',
+          borderColor: '#F59E0B',
+          backgroundColor: 'rgba(245,158,11,0.1)',
           fill: true, tension: 0.3, pointRadius: 0, borderWidth: 1.5,
         },
         {
           label: 'Running',
           data: running,
-          borderColor: '#3b82f6',
-          backgroundColor: 'rgba(59,130,246,0.08)',
+          borderColor: '#3B82F6',
+          backgroundColor: 'rgba(59,130,246,0.1)',
           fill: true, tension: 0.3, pointRadius: 0, borderWidth: 1.5,
         },
       ],
@@ -1306,10 +1528,10 @@ function renderQueueChart(data) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: true, labels: { color: '#666', boxWidth: 10, font: { size: 10 } } } },
+      plugins: { legend: { display: true, position: 'bottom', labels: { color: '#9CA3AF', boxWidth: 10, font: { size: 10 }, padding: 12 } } },
       scales: {
-        x: { ticks: { color: '#666', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: '#1f1f1f' } },
-        y: { beginAtZero: true, ticks: { color: '#666', font: { size: 10 }, stepSize: 1 }, grid: { color: '#1f1f1f' } },
+        x: { ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: '#1f2937' } },
+        y: { beginAtZero: true, ticks: { color: '#6b7280', font: { size: 10 }, stepSize: 1 }, grid: { color: '#1f2937' } },
       },
     },
   });
@@ -1320,33 +1542,38 @@ function renderCostsChart(data) {
   if (!ctx) return;
 
   if (data.length === 0) {
-    // Fallback: show empty state
     if (chartCosts) chartCosts.destroy();
     chartCosts = new Chart(ctx, {
       type: 'bar',
-      data: { labels: ['No data'], datasets: [{ data: [0], backgroundColor: '#1f1f1f' }] },
+      data: { labels: ['No data'], datasets: [{ data: [0], backgroundColor: '#1f2937' }] },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { ticks: { color: '#666' }, grid: { color: '#1f1f1f' } },
-          y: { ticks: { color: '#666' }, grid: { color: '#1f1f1f' } },
+          x: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } },
+          y: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } },
         },
       },
     });
     return;
   }
 
-  // Group by day, then by project for stacked bars
+  // Group by day, then by project
   const dayMap = {};
-  const projectSet = new Set();
+  const projectTotals = {};
   for (const row of data) {
     const day = row.day;
     const proj = row.project_name || 'unknown';
-    projectSet.add(proj);
+    const cost = row.total_budget || 0;
+    projectTotals[proj] = (projectTotals[proj] || 0) + cost;
     if (!dayMap[day]) dayMap[day] = {};
-    dayMap[day][proj] = (dayMap[day][proj] || 0) + (row.total_budget || 0);
+    dayMap[day][proj] = (dayMap[day][proj] || 0) + cost;
   }
+
+  // Top 3 projects by total cost, rest as "Other"
+  const sortedProjects = Object.entries(projectTotals).sort((a, b) => b[1] - a[1]);
+  const top3 = sortedProjects.slice(0, 3).map(p => p[0]);
+  const hasOther = sortedProjects.length > 3;
 
   // Fill missing days
   const days = [];
@@ -1357,20 +1584,40 @@ function renderCostsChart(data) {
     days.push(date.toISOString().slice(0, 10));
   }
 
-  const projects = Array.from(projectSet);
-  const datasets = projects.map((proj, i) => ({
+  // Build datasets for top 3 + Other
+  const displayProjects = hasOther ? [...top3, 'Other'] : top3;
+  const datasets = displayProjects.map((proj, i) => ({
     label: proj,
-    data: days.map(d => (dayMap[d] && dayMap[d][proj]) || 0),
-    backgroundColor: (PROJECT_COLORS[i % PROJECT_COLORS.length]) + '99',
-    borderColor: PROJECT_COLORS[i % PROJECT_COLORS.length],
+    data: days.map(d => {
+      if (proj === 'Other') {
+        // Sum all non-top3 projects for this day
+        let sum = 0;
+        if (dayMap[d]) {
+          for (const [p, v] of Object.entries(dayMap[d])) {
+            if (!top3.includes(p)) sum += v;
+          }
+        }
+        return sum;
+      }
+      return (dayMap[d] && dayMap[d][proj]) || 0;
+    }),
+    backgroundColor: (proj === 'Other' ? '#4B5563' : PROJECT_COLORS[i % PROJECT_COLORS.length]) + 'CC',
+    borderColor: proj === 'Other' ? '#6B7280' : PROJECT_COLORS[i % PROJECT_COLORS.length],
     borderWidth: 1,
-    borderRadius: 2,
+    borderRadius: 4,
   }));
 
   const dayLabels = days.map(d => {
     const date = new Date(d + 'T00:00:00');
     return date.toLocaleDateString([], { weekday: 'short' });
   });
+
+  // Calculate total cost for header
+  const totalCost = Object.values(projectTotals).reduce((a, b) => a + b, 0);
+  const totalEl = document.getElementById('cost-total');
+  if (totalEl) {
+    totalEl.textContent = '$' + totalCost.toFixed(2) + ' (7d)';
+  }
 
   if (chartCosts) chartCosts.destroy();
   chartCosts = new Chart(ctx, {
@@ -1380,20 +1627,28 @@ function renderCostsChart(data) {
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { display: projects.length > 1, labels: { color: '#666', boxWidth: 10, font: { size: 10 } } },
+        legend: {
+          display: displayProjects.length > 1,
+          position: 'bottom',
+          labels: { color: '#9CA3AF', boxWidth: 10, font: { size: 10 }, padding: 12 }
+        },
         tooltip: {
           callbacks: {
-            label: function(ctx) { return ctx.dataset.label + ': $' + ctx.raw.toFixed(2); }
+            label: function(ctx) { return ctx.dataset.label + ': $' + ctx.raw.toFixed(2); },
+            footer: function(items) {
+              const total = items.reduce((s, i) => s + i.raw, 0);
+              return 'Total: $' + total.toFixed(2);
+            }
           }
         },
       },
       scales: {
-        x: { stacked: true, ticks: { color: '#666', font: { size: 10 } }, grid: { color: '#1f1f1f' } },
+        x: { stacked: true, ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: '#1f2937' } },
         y: {
           stacked: true, beginAtZero: true,
-          title: { display: true, text: 'USD', color: '#666', font: { size: 10 } },
-          ticks: { color: '#666', font: { size: 10 }, callback: v => '$' + v },
-          grid: { color: '#1f1f1f' },
+          title: { display: true, text: 'USD', color: '#6b7280', font: { size: 10 } },
+          ticks: { color: '#6b7280', font: { size: 10 }, callback: v => '$' + v },
+          grid: { color: '#1f2937' },
         },
       },
     },
@@ -1412,6 +1667,19 @@ async function refreshCharts() {
     renderCostsChart(costs);
   } catch (e) {
     console.error('Charts failed:', e);
+  }
+}
+
+async function refreshStats() {
+  try {
+    const [analytics, history] = await Promise.all([
+      api('/api/stats/analytics'),
+      api('/api/stats/task-history'),
+    ]);
+    renderStatCards(analytics, history);
+    renderHistoryCards(history);
+  } catch (e) {
+    console.error('Stats failed:', e);
   }
 }
 
@@ -1457,8 +1725,10 @@ async function refresh() {
 // ── Init ───────────────────────────────────
 
 refresh();
+refreshStats();
 refreshCharts();
 setInterval(refresh, REFRESH);
+setInterval(refreshStats, 30000);
 setInterval(refreshCharts, 60000);
 setInterval(updateTimestamp, 1000);
 </script>
