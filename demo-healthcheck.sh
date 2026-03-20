@@ -357,6 +357,51 @@ PREVEOF
     fi
 }
 
+# ─── GitHub CLI auth check ─────────────────────────
+
+check_gh_auth() {
+    if ! gh auth status &>/dev/null; then
+        local auth_output
+        auth_output=$(gh auth status 2>&1)
+        log "${RED}GitHub CLI auth expired or invalid${NC}"
+        log_bug "gh-auth-expired" "high" \
+            "GitHub CLI auth is expired — gh commands (PR create, pr list) will fail with HTTP 401" \
+            "$auth_output"
+
+        cat > "$FLEET_DIR/review-queue/gh-auth-expired.md" << AUTHEOF
+---
+task_id: gh-auth-expired
+project: claude-handler
+type: blocked
+priority: high
+created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+---
+
+## GitHub CLI Auth Expired on Mac Mini
+
+\`gh auth status\` failed. Worker tasks that create PRs will fail.
+
+### Fix
+Run interactively on the Mac Mini:
+\`\`\`bash
+gh auth login
+\`\`\`
+Or if a personal access token is available:
+\`\`\`bash
+echo "<token>" | gh auth login --with-token
+\`\`\`
+
+### Raw output
+\`\`\`
+$auth_output
+\`\`\`
+AUTHEOF
+    else
+        # Auth is healthy — clean up stale review-queue item if present
+        rm -f "$FLEET_DIR/review-queue/gh-auth-expired.md" 2>/dev/null
+    fi
+}
+
 # ─── Smoke test: /app page ─────────────────────────
 smoke_test_app_page() {
     local body
@@ -457,6 +502,7 @@ while true; do
         scan_web_logs
         smoke_test_api
         smoke_test_app_page
+        check_gh_auth
         check_preview_server
         maybe_create_worker_task
 
