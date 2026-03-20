@@ -684,6 +684,118 @@ def get_queue_by_project() -> list[dict]:
     return [dict(row) for row in rows]
 
 
+def get_task_stats() -> dict:
+    """Get accumulated task counts: today, this week, this month, broken down by project."""
+    conn = get_conn()
+
+    # Today
+    today_rows = conn.execute("""
+        SELECT project_name, COUNT(*) as count
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND finished_at IS NOT NULL AND finished_at != ''
+          AND DATE(finished_at) = DATE('now')
+        GROUP BY project_name
+    """).fetchall()
+    today_total = sum(r["count"] for r in today_rows)
+    today_by_project = {r["project_name"]: r["count"] for r in today_rows if r["project_name"]}
+
+    # This week (Monday start)
+    week_rows = conn.execute("""
+        SELECT project_name, COUNT(*) as count
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND finished_at IS NOT NULL AND finished_at != ''
+          AND DATE(finished_at) >= DATE('now', 'weekday 1', '-7 days')
+        GROUP BY project_name
+    """).fetchall()
+    week_total = sum(r["count"] for r in week_rows)
+    week_by_project = {r["project_name"]: r["count"] for r in week_rows if r["project_name"]}
+
+    # This month
+    month_rows = conn.execute("""
+        SELECT project_name, COUNT(*) as count
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND finished_at IS NOT NULL AND finished_at != ''
+          AND DATE(finished_at) >= DATE('now', 'start of month')
+        GROUP BY project_name
+    """).fetchall()
+    month_total = sum(r["count"] for r in month_rows)
+    month_by_project = {r["project_name"]: r["count"] for r in month_rows if r["project_name"]}
+
+    # Yesterday total (for trend comparison)
+    yesterday_row = conn.execute("""
+        SELECT COUNT(*) as count
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND finished_at IS NOT NULL AND finished_at != ''
+          AND DATE(finished_at) = DATE('now', '-1 day')
+    """).fetchone()
+    yesterday_total = yesterday_row["count"] if yesterday_row else 0
+
+    return {
+        "today": today_total,
+        "today_by_project": today_by_project,
+        "yesterday": yesterday_total,
+        "week": week_total,
+        "week_by_project": week_by_project,
+        "month": month_total,
+        "month_by_project": month_by_project,
+    }
+
+
+def get_analytics() -> dict:
+    """Get focused analytics: avg duration, success rate, current queue depth."""
+    conn = get_conn()
+
+    # Average task duration (completed tasks, last 7 days)
+    avg_row = conn.execute("""
+        SELECT AVG(
+            (julianday(finished_at) - julianday(started_at)) * 24 * 60
+        ) as avg_minutes
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND started_at IS NOT NULL AND started_at != ''
+          AND finished_at IS NOT NULL AND finished_at != ''
+          AND DATE(finished_at) >= DATE('now', '-7 days')
+    """).fetchone()
+    avg_duration_min = round(avg_row["avg_minutes"], 1) if avg_row and avg_row["avg_minutes"] else 0
+
+    # Success rate (last 30 days)
+    rate_row = conn.execute("""
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN status IN ('completed', 'merged') THEN 1 ELSE 0 END) as success
+        FROM tasks
+        WHERE finished_at IS NOT NULL AND finished_at != ''
+          AND DATE(finished_at) >= DATE('now', '-30 days')
+    """).fetchone()
+    total = rate_row["total"] if rate_row else 0
+    success = rate_row["success"] if rate_row else 0
+    success_rate = round((success / total) * 100, 1) if total > 0 else 100.0
+
+    # Current queue depth
+    queue_row = conn.execute("""
+        SELECT
+            SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
+            SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running
+        FROM tasks
+        WHERE status IN ('queued', 'running')
+    """).fetchone()
+    queued = queue_row["queued"] if queue_row and queue_row["queued"] else 0
+    running = queue_row["running"] if queue_row and queue_row["running"] else 0
+
+    return {
+        "avg_duration_min": avg_duration_min,
+        "success_rate": success_rate,
+        "total_finished": total,
+        "total_success": success,
+        "queue_depth": queued,
+        "running": running,
+    }
+
+
 def log_auto_heal(bug_id: str, project: str, action: str, result: str, details: str = "") -> None:
     """Log an auto-heal action."""
     conn = get_conn()

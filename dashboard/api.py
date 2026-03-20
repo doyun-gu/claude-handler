@@ -28,7 +28,7 @@ from db import get_conn, run_migration, sync_from_json, get_all_tasks, \
     get_task, update_task, get_all_backlog, get_all_events, add_event, \
     get_daily_completions, get_project_breakdown, get_queue_depth_history, \
     get_auto_heal_log, log_auto_heal, get_task_timeline, get_daily_costs, \
-    get_queue_by_project
+    get_queue_by_project, get_task_stats, get_analytics
 
 
 async def _periodic_sync():
@@ -1269,6 +1269,18 @@ async def get_stats_queue_depth(hours: int = Query(24)):
 async def get_stats_auto_heal(limit: int = Query(50)):
     """Recent auto-heal log entries."""
     return get_auto_heal_log(limit)
+
+
+@app.get("/api/stats/task-history")
+async def get_stats_task_history():
+    """Accumulated task counts: today, this week, this month, by project."""
+    return get_task_stats()
+
+
+@app.get("/api/stats/analytics")
+async def get_stats_analytics():
+    """Focused analytics: avg duration, success rate, queue depth."""
+    return get_analytics()
 
 
 # ── Git Status Endpoints ─────────────────────────────────
