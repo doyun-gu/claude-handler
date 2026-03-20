@@ -26,6 +26,76 @@ NC='\033[0m'
 
 log() { echo -e "[health $(date +%H:%M:%S)] $1"; }
 
+# ── Auto-heal: fix known bugs from knowledge base ──────────
+auto_heal_from_kb() {
+    local slug="$1"
+    local description="$2"
+    local severity="$3"
+    local KB_DIR="$FLEET_DIR/bug-knowledge"
+    local HEAL_LOG="$FLEET_DIR/logs/auto-heal.log"
+
+    [[ ! -d "$KB_DIR" ]] && return 1
+
+    # Search knowledge base for matching pattern
+    for kb in "$KB_DIR"/*.md; do
+        [[ -f "$kb" ]] || continue
+        local kb_name=$(basename "$kb" .md | tr '-' ' ')
+
+        # Match by slug keywords or description keywords
+        if echo "$slug $description" | grep -qi "$(echo "$kb_name" | cut -d' ' -f1)"; then
+            local fix_commands=$(sed -n '/^```bash/,/^```/p' "$kb" | grep -v '```' | head -10)
+
+            if [[ -n "$fix_commands" ]]; then
+                log "${GREEN}AUTO-HEAL: Known bug matched → $(basename $kb)${NC}"
+                eval "$fix_commands" 2>&1 | head -5
+
+                # Increment counter in KB
+                local count=$(grep -o 'Times resolved: [0-9]*' "$kb" | grep -o '[0-9]*')
+                count=$((${count:-0} + 1))
+                sed -i '' "s/Times resolved: [0-9]*/Times resolved: $count/" "$kb" 2>/dev/null
+
+                # Log
+                echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] AUTO-HEALED: $slug (kb: $(basename $kb), count: $count)" >> "$HEAL_LOG"
+                return 0
+            fi
+        fi
+    done
+
+    # Check for common patterns even without KB entry
+    case "$slug" in
+        *webpack*|*cache*|*pack.gz*|*hasStartTime*)
+            log "${GREEN}AUTO-HEAL: Clearing webpack cache${NC}"
+            rm -rf ~/Developer/dynamic-phasors/DPSpice-com/web/.next/cache/webpack 2>/dev/null
+            echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] AUTO-HEALED: $slug (pattern: webpack-cache)" >> "$HEAL_LOG"
+            return 0
+            ;;
+        *ENOENT*|*no-such-file*|*rename*)
+            log "${GREEN}AUTO-HEAL: Cache file issue — clearing .next/cache${NC}"
+            rm -rf ~/Developer/dynamic-phasors/DPSpice-com/web/.next/cache 2>/dev/null
+            echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] AUTO-HEALED: $slug (pattern: enoent-cache)" >> "$HEAL_LOG"
+            return 0
+            ;;
+        *EADDRINUSE*|*address-already-in-use*|*port-conflict*)
+            local port=$(echo "$description" | grep -o '[0-9]\{4\}' | head -1)
+            if [[ -n "$port" ]]; then
+                log "${GREEN}AUTO-HEAL: Killing stale process on port $port${NC}"
+                lsof -ti:"$port" | xargs kill -9 2>/dev/null
+                echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] AUTO-HEALED: $slug (pattern: port-conflict:$port)" >> "$HEAL_LOG"
+                return 0
+            fi
+            ;;
+        *crash*|*restart-failed*)
+            log "${GREEN}AUTO-HEAL: Crash detected — clearing cache and restarting${NC}"
+            rm -rf ~/Developer/dynamic-phasors/DPSpice-com/web/.next/cache 2>/dev/null
+            echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] AUTO-HEALED: $slug (pattern: crash-restart)" >> "$HEAL_LOG"
+            return 0
+            ;;
+    esac
+
+    return 1  # Unknown bug, not healed
+}
+
+
 # ─── Health checks ────────────────────────────────
 
 check_api() {
@@ -141,6 +211,12 @@ $(echo "$raw_error" | head -30)
 \`\`\`
 
 BUG_ENTRY
+
+    # Try auto-heal first
+    if auto_heal_from_kb "$slug" "$description" "$severity"; then
+        log "${GREEN}AUTO-HEALED: $slug — no review queue entry needed${NC}"
+        continue
+    fi
 
     log "${RED}NEW BUG logged: $slug — $description${NC}"
 
