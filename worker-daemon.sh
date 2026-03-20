@@ -250,7 +250,8 @@ WORKER RULES:
    On completion, also set pr_url to the PR URL from gh pr create.
    On failure, also set error_message to a one-line summary of what went wrong.
 9. Use gstack skills as appropriate: /review before pushing, /qa if testing a web app.
-10. There are ${queued_count} more tasks in the queue after this one. Your budget is \$${budget}. Work efficiently — the daemon will start the next task when you finish."
+10. There are ${queued_count} more tasks in the queue after this one. Your budget is \$${budget}. Work efficiently — the daemon will start the next task when you finish.
+11. PERFORMANCE: When running long computations (pytest suites, simulations, validation scripts), use run_in_background instead of waiting synchronously. Continue writing the next file, feature, or independent subtask while tests run. Check results before committing. Never block on a 5-minute test run when you have other work to do."
 
     # Determine permission flag
     local perm_flag=""
