@@ -27,7 +27,8 @@ from pydantic import BaseModel
 from db import get_conn, run_migration, sync_from_json, get_all_tasks, \
     get_task, update_task, get_all_backlog, get_all_events, add_event, \
     get_daily_completions, get_project_breakdown, get_queue_depth_history, \
-    get_auto_heal_log, log_auto_heal
+    get_auto_heal_log, log_auto_heal, get_task_timeline, get_daily_costs, \
+    get_queue_by_project
 
 
 async def _periodic_sync():
@@ -1187,6 +1188,60 @@ async def create_event(event: EventCreate):
     events.append(new_event)
     EVENTS_FILE.write_text(json.dumps(events, indent=2) + "\n")
     return {"status": "ok", "message": f"Event '{event.title}' added"}
+
+
+# ── New Dashboard Endpoints ──────────────────────────────
+
+
+@app.get("/api/queue")
+async def get_queue():
+    """Tasks grouped by project with running/queued separation for Kanban view."""
+    tasks = get_queue_by_project()
+    # Group by project
+    projects: dict[str, dict] = {}
+    for t in tasks:
+        proj = t.get("project_name") or "unknown"
+        if proj not in projects:
+            projects[proj] = {"project": proj, "running": None, "queued": []}
+        if t["status"] == "running":
+            # Calculate duration
+            if t.get("started_at"):
+                try:
+                    start = datetime.fromisoformat(t["started_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+                    elapsed = (datetime.utcnow() - start).total_seconds()
+                    t["elapsed_seconds"] = int(elapsed)
+                    t["elapsed_display"] = f"{int(elapsed // 60)}m" if elapsed >= 60 else f"{int(elapsed)}s"
+                except (ValueError, TypeError):
+                    t["elapsed_seconds"] = 0
+                    t["elapsed_display"] = "--"
+            projects[proj]["running"] = t
+        else:
+            projects[proj]["queued"].append(t)
+
+    # Also include projects from registry that have no tasks (idle)
+    if PROJECTS_FILE.exists():
+        try:
+            data = json.loads(PROJECTS_FILE.read_text())
+            for proj in data.get("projects", []):
+                name = proj.get("name", "")
+                if name and name not in projects:
+                    projects[name] = {"project": name, "running": None, "queued": []}
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return list(projects.values())
+
+
+@app.get("/api/timeline")
+async def get_timeline(hours: int = Query(24)):
+    """Task start/end times for the timeline chart."""
+    return get_task_timeline(hours)
+
+
+@app.get("/api/costs")
+async def get_costs(days: int = Query(7)):
+    """Daily cost breakdown by project."""
+    return get_daily_costs(days)
 
 
 # ── Stats Endpoints (for charts) ─────────────────────────
