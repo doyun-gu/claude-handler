@@ -207,13 +207,107 @@ tr.queued td { color: var(--text-dim); }
 
 /* ── Responsive ─────────────────────────── */
 @media (max-width: 768px) {
-  .sys-bar, .svc-bar { gap: 12px; }
-  table { font-size: 11px; }
-  td, th { padding: 4px 4px; }
+  /* 9/10. Prevent horizontal overflow */
+  html, body { overflow-x: hidden; max-width: 100vw; }
+
+  /* 5. Font — min 13px body, monospace headers can be 11px */
+  body { font-size: 13px; }
+  table { font-size: 13px; }
+  th { font-size: 11px; }
+
+  /* Section padding */
   .section { padding: 8px 12px; }
   .header { padding: 10px 12px; }
-  .header h1 { font-size: 12px; }
+  .header h1 { font-size: 13px; }
+
+  /* Hide columns on mobile */
   .hide-mobile { display: none; }
+
+  /* 1. System stats — stack vertically (1 column) */
+  .sys-bar {
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  /* 2. Services/quick links — wrap to 2 per row */
+  .svc-bar {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 16px;
+  }
+
+  /* 3. Tables — horizontal scroll wrapper fallback */
+  .table-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin: 0 -12px;
+    padding: 0 12px;
+  }
+  td, th { padding: 6px 6px; }
+
+  /* 4. Buttons — 44px tap target (Apple HIG) */
+  .btn {
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 14px;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 6. Events/toast — full width, text wraps */
+  .toast-container {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+  .toast { max-width: none; }
+
+  /* 7. Review queue — card layout on mobile */
+  #review-body table,
+  #review-body thead,
+  #review-body tbody,
+  #review-body th,
+  #review-body tr,
+  #review-body td {
+    display: block;
+  }
+  #review-body thead { display: none; }
+  #review-body table { border: none; }
+  #review-body tr {
+    margin-bottom: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg-card);
+  }
+  #review-body tr:hover td { background: transparent; }
+  #review-body td {
+    padding: 2px 0;
+    border: none;
+  }
+  #review-body td.hide-mobile { display: none; }
+  #review-body td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 8px;
+  }
+  #review-body td.review-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+  }
+  #review-body td.review-actions::before { display: none; }
+  #review-body td.review-actions .btn { flex: 1; }
+
+  /* 8. Completed — task name + status badge only on mobile */
+  .hide-mobile-completed { display: none; }
 }
 </style>
 </head>
@@ -451,7 +545,7 @@ function renderActiveTasks(tasks) {
     return;
   }
 
-  let html = '<table><tr><th>Task</th><th>Project</th><th>Status</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Branch</th></tr>';
+  let html = '<table><thead><tr><th>Task</th><th>Project</th><th>Status</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Branch</th></tr></thead><tbody>';
   for (let i = 0; i < active.length; i++) {
     const t = active[i];
     const cls = t.status === 'running' ? 'running' : 'queued';
@@ -463,7 +557,7 @@ function renderActiveTasks(tasks) {
     html += '<td class="hide-mobile">' + esc(shortBranch(t.branch)) + '</td>';
     html += '</tr>';
   }
-  html += '</table>';
+  html += '</tbody></table>';
   el.innerHTML = html;
 }
 
@@ -484,18 +578,18 @@ function renderCompleted(tasks) {
     return;
   }
 
-  let html = '<table><tr><th>Task</th><th>Project</th><th>Status</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Finished</th></tr>';
+  let html = '<table><thead><tr><th>Task</th><th class="hide-mobile-completed">Project</th><th>Status</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Finished</th></tr></thead><tbody>';
   for (let i = 0; i < recent.length; i++) {
     const t = recent[i];
     html += '<tr>';
     html += '<td>' + esc(shortSlug(t.id || t.slug)) + '</td>';
-    html += '<td>' + esc(t.project_name || '--') + '</td>';
+    html += '<td class="hide-mobile-completed">' + esc(t.project_name || '--') + '</td>';
     html += '<td>' + badge(t.status) + '</td>';
     html += '<td class="hide-mobile">' + duration(t.started_at, t.finished_at) + '</td>';
     html += '<td class="hide-mobile">' + timeAgo(t.finished_at || t.merged_at) + '</td>';
     html += '</tr>';
   }
-  html += '</table>';
+  html += '</tbody></table>';
   el.innerHTML = html;
 }
 
@@ -509,7 +603,7 @@ function renderReview(items) {
   }
   sec.style.display = '';
 
-  let html = '<table><tr><th>Task</th><th>Project</th><th>Type</th><th class="hide-mobile">Reason</th><th>Action</th></tr>';
+  let html = '<table><thead><tr><th>Task</th><th>Project</th><th>Type</th><th class="hide-mobile">Reason</th><th>Action</th></tr></thead><tbody>';
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const meta = item.meta || {};
@@ -532,14 +626,14 @@ function renderReview(items) {
     }
 
     html += '<tr>';
-    html += '<td>' + esc(slug) + '</td>';
-    html += '<td>' + esc(project) + '</td>';
-    html += '<td>' + badge(itemType) + '</td>';
-    html += '<td class="hide-mobile">' + esc(reason) + '</td>';
-    html += '<td style="white-space:nowrap">' + actions + '</td>';
+    html += '<td data-label="Task">' + esc(slug) + '</td>';
+    html += '<td data-label="Project">' + esc(project) + '</td>';
+    html += '<td data-label="Type">' + badge(itemType) + '</td>';
+    html += '<td class="hide-mobile" data-label="Reason">' + esc(reason) + '</td>';
+    html += '<td class="review-actions">' + actions + '</td>';
     html += '</tr>';
   }
-  html += '</table>';
+  html += '</tbody></table>';
   el.innerHTML = html;
 }
 
@@ -552,7 +646,7 @@ function renderBacklog(tasks) {
     return;
   }
 
-  let html = '<table><tr><th>Pri</th><th>Task</th><th>Project</th><th class="hide-mobile">Est.</th><th class="hide-mobile">Category</th></tr>';
+  let html = '<table><thead><tr><th>Pri</th><th>Task</th><th>Project</th><th class="hide-mobile">Est.</th><th class="hide-mobile">Category</th></tr></thead><tbody>';
   for (let i = 0; i < tasks.length; i++) {
     const t = tasks[i];
     html += '<tr>';
@@ -563,7 +657,7 @@ function renderBacklog(tasks) {
     html += '<td class="hide-mobile">' + esc(t.category || '--') + '</td>';
     html += '</tr>';
   }
-  html += '</table>';
+  html += '</tbody></table>';
   el.innerHTML = html;
 }
 
