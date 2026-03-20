@@ -424,16 +424,56 @@ tr.queued td { color: var(--text-dim); }
   border-color: #4a5a4a;
 }
 
+/* ── Activity chart ─────────────────────── */
+.activity-chart {
+  position: relative;
+  height: 120px;
+  margin-top: 6px;
+}
+.activity-chart svg {
+  width: 100%;
+  height: 100%;
+}
+.chart-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.chart-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.chart-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+/* ── ETA footer ────────────────────────── */
+.eta-footer {
+  padding: 6px 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  border-top: 1px solid #2a2a2a;
+  margin-top: 4px;
+}
+.eta-footer .val { color: var(--text-bright); }
+.est-time { color: var(--yellow); font-size: 11px; }
+
 /* ── Empty state ────────────────────────── */
 .empty { color: var(--text-dim); font-style: italic; padding: 8px 0; }
 
 /* ── Responsive ─────────────────────────── */
 @media (max-width: 768px) {
-  /* 9/10. Prevent horizontal overflow */
+  /* Prevent horizontal overflow */
   html, body { overflow-x: hidden; max-width: 100vw; }
 
-  /* 5. Font — min 13px body, monospace headers can be 11px */
-  body { font-size: 13px; }
+  /* Font — min 14px body on mobile */
+  body { font-size: 14px; }
   table { font-size: 13px; }
   th { font-size: 11px; }
 
@@ -445,7 +485,7 @@ tr.queued td { color: var(--text-dim); }
   /* Hide columns on mobile */
   .hide-mobile { display: none; }
 
-  /* 1. Machine card — stack vertically on mobile */
+  /* Machine card — stack vertically on mobile */
   .machine-card { padding: 8px 12px; }
   .machine-row {
     flex-direction: column;
@@ -458,14 +498,14 @@ tr.queued td { color: var(--text-dim); }
     align-items: flex-start;
   }
 
-  /* 2. Services/quick links — wrap to 2 per row */
+  /* Services — wrap to 2 per row */
   .svc-bar {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 8px 16px;
   }
 
-  /* 3. Tables — horizontal scroll wrapper fallback */
+  /* Tables — horizontal scroll */
   .table-scroll {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
@@ -474,7 +514,21 @@ tr.queued td { color: var(--text-dim); }
   }
   td, th { padding: 6px 6px; }
 
-  /* 4. Buttons — 44px tap target (Apple HIG) */
+  /* Active tasks table — scrollable on mobile */
+  #active-body {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #active-body table { min-width: 500px; }
+
+  /* Completed table — scrollable */
+  #completed-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  #completed-table table { min-width: 450px; }
+
+  /* Buttons — 44px tap target */
   .btn {
     min-height: 44px;
     min-width: 44px;
@@ -485,7 +539,15 @@ tr.queued td { color: var(--text-dim); }
     justify-content: center;
   }
 
-  /* 6. Events/toast — full width, text wraps */
+  /* Events bar — wrap */
+  .events-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 12px;
+  }
+  .event-chip { font-size: 11px; }
+
+  /* Toast — full width */
   .toast-container {
     left: 12px;
     right: 12px;
@@ -493,7 +555,7 @@ tr.queued td { color: var(--text-dim); }
   }
   .toast { max-width: none; }
 
-  /* 7. Review queue — card layout on mobile */
+  /* Review queue — card layout on mobile */
   #review-body table,
   #review-body thead,
   #review-body tbody,
@@ -535,17 +597,31 @@ tr.queued td { color: var(--text-dim); }
   #review-body td.review-actions::before { display: none; }
   #review-body td.review-actions .btn { flex: 1; }
 
-  /* 8. Completed — task name + status badge only on mobile */
+  /* Completed — task name + status badge only on mobile */
   .hide-mobile-completed { display: none; }
 
-  /* 10. Filter pills — wrap, 44px tap targets */
-  .filter-bar { gap: 4px; }
+  /* Filter pills — horizontal scroll, not wrapping */
+  .filter-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+    gap: 4px;
+  }
   .filter-pill {
+    flex-shrink: 0;
     min-height: 36px;
     padding: 6px 10px;
     font-size: 12px;
     display: inline-flex;
     align-items: center;
+  }
+
+  /* Activity chart — shorter on mobile */
+  .activity-chart { height: 100px; }
+  .chart-legend {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 </style>
@@ -631,6 +707,23 @@ tr.queued td { color: var(--text-dim); }
   </div>
 </div>
 
+<!-- Activity Graph -->
+<div class="section" id="activity-section">
+  <div class="section-header" onclick="toggleSection('activity-section')">
+    <span class="section-label" style="margin-bottom:0">Task Activity (24h)</span>
+    <span class="toggle" id="activity-toggle">[hide]</span>
+  </div>
+  <div class="section-body">
+    <div class="activity-chart" id="activity-chart"></div>
+    <div class="chart-legend">
+      <span class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--green)"></span> Completed</span>
+      <span class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--yellow)"></span> Running</span>
+      <span class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--blue)"></span> Queued</span>
+      <span class="chart-legend-item"><span class="chart-legend-dot" style="background:var(--red)"></span> Failed</span>
+    </div>
+  </div>
+</div>
+
 <!-- Active Tasks -->
 <div class="section" id="active-section">
   <div class="section-label">Active Tasks</div>
@@ -676,6 +769,8 @@ let lastFetch = 0;
 let currentTimeFilter = 'today';
 let currentProjectFilter = 'all';
 let allTasks = [];
+let taskEstimates = {};  // keyed by task_id
+let estimateData = null;
 
 // ── Helpers ─────────────────────────────────
 
@@ -964,30 +1059,56 @@ function renderServices(svcs) {
 }
 
 function renderActiveTasks(tasks) {
-  const all = tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; });
-  const active = all.filter(function(t) {
+  var all = tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; });
+  var active = all.filter(function(t) {
     return currentProjectFilter === 'all' || (t.project_name || 'unknown') === currentProjectFilter;
   });
-  const el = document.getElementById('active-body');
+  var el = document.getElementById('active-body');
 
   if (active.length === 0) {
     el.innerHTML = '<div class="empty">No active tasks</div>';
     return;
   }
 
-  let html = '<table><thead><tr><th>Task</th><th>Project</th><th>Status</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Branch</th></tr></thead><tbody>';
-  for (let i = 0; i < active.length; i++) {
-    const t = active[i];
-    const cls = t.status === 'running' ? 'running' : 'queued';
+  var html = '<div class="table-scroll"><table><thead><tr><th>Task</th><th>Project</th><th>Status</th><th>Duration</th><th class="hide-mobile">Branch</th></tr></thead><tbody>';
+  for (var i = 0; i < active.length; i++) {
+    var t = active[i];
+    var cls = t.status === 'running' ? 'running' : 'queued';
+    var tid = t.id || t.slug || '';
+    var est = taskEstimates[tid];
     html += '<tr class="' + cls + '">';
-    html += '<td>' + esc(shortSlug(t.id || t.slug)) + '</td>';
+    html += '<td>' + esc(shortSlug(tid)) + '</td>';
     html += '<td>' + esc(t.project_name || '--') + '</td>';
     html += '<td>' + badge(t.status) + '</td>';
-    html += '<td class="hide-mobile">' + duration(t.started_at, t.finished_at) + '</td>';
+
+    // Duration column: elapsed for running, estimate for queued
+    if (t.status === 'running') {
+      var dur = duration(t.started_at, t.finished_at);
+      if (est) {
+        dur += ' <span class="est-time">Est: ' + formatEstimate(est.estimated_minutes) + '</span>';
+      }
+      html += '<td>' + dur + '</td>';
+    } else if (t.status === 'queued' && est) {
+      html += '<td><span class="est-time">Est: ' + formatEstimate(est.estimated_minutes) + '</span>';
+      if (est.queue_position) {
+        html += ' <span style="color:var(--text-dim);font-size:11px">#' + est.queue_position + ' in queue</span>';
+      }
+      html += '</td>';
+    } else {
+      html += '<td>--</td>';
+    }
+
     html += '<td class="hide-mobile">' + esc(shortBranch(t.branch)) + '</td>';
     html += '</tr>';
   }
-  html += '</tbody></table>';
+  html += '</tbody></table></div>';
+
+  // ETA footer
+  if (estimateData && estimateData.total_remaining_minutes > 0) {
+    html += '<div class="eta-footer">All tasks complete: <span class="val">' +
+            formatEstimate(estimateData.total_remaining_minutes) + '</span></div>';
+  }
+
   el.innerHTML = html;
 }
 
@@ -1247,6 +1368,115 @@ async function submitEvent() {
   }
 }
 
+// ── Activity Chart (inline SVG) ──────────────
+
+function renderActivityChart(buckets) {
+  var el = document.getElementById('activity-chart');
+  if (!el || !buckets || buckets.length === 0) {
+    if (el) el.innerHTML = '<div class="empty">No activity data</div>';
+    return;
+  }
+
+  var W = el.clientWidth || 600;
+  var H = el.clientHeight || 120;
+  var pad = { top: 10, right: 10, bottom: 24, left: 30 };
+  var plotW = W - pad.left - pad.right;
+  var plotH = H - pad.top - pad.bottom;
+  var n = buckets.length;
+  var barW = Math.max(1, plotW / n);
+
+  // Find max stacked value
+  var maxVal = 1;
+  for (var i = 0; i < n; i++) {
+    var total = (buckets[i].completed || 0) + (buckets[i].running || 0) +
+                (buckets[i].queued || 0) + (buckets[i].failed || 0);
+    if (total > maxVal) maxVal = total;
+  }
+
+  var colors = {
+    completed: '#5a5',
+    running: '#aa6',
+    queued: '#68a',
+    failed: '#a55'
+  };
+  var order = ['failed', 'queued', 'running', 'completed'];
+
+  var svg = '<svg width="' + W + '" height="' + H + '" xmlns="http://www.w3.org/2000/svg">';
+
+  // Grid lines
+  var gridSteps = Math.min(maxVal, 4);
+  for (var g = 0; g <= gridSteps; g++) {
+    var gy = pad.top + plotH - (g / gridSteps) * plotH;
+    svg += '<line x1="' + pad.left + '" y1="' + gy + '" x2="' + (W - pad.right) + '" y2="' + gy +
+           '" stroke="#2a2a2a" stroke-width="1"/>';
+    var label = Math.round(g / gridSteps * maxVal);
+    svg += '<text x="' + (pad.left - 4) + '" y="' + (gy + 3) +
+           '" text-anchor="end" fill="#666" font-size="9" font-family="inherit">' + label + '</text>';
+  }
+
+  // Stacked bars
+  for (var i = 0; i < n; i++) {
+    var x = pad.left + i * barW;
+    var cumY = 0;
+
+    for (var j = 0; j < order.length; j++) {
+      var key = order[j];
+      var val = buckets[i][key] || 0;
+      if (val <= 0) continue;
+      var barH = (val / maxVal) * plotH;
+      var y = pad.top + plotH - cumY - barH;
+      svg += '<rect x="' + (x + 1) + '" y="' + y + '" width="' + Math.max(1, barW - 2) +
+             '" height="' + barH + '" fill="' + colors[key] + '" opacity="0.8" rx="1">';
+      svg += '<title>' + buckets[i].hour + ' — ' + key + ': ' + val + '</title>';
+      svg += '</rect>';
+      cumY += barH;
+    }
+
+    // X-axis labels (every 4 hours)
+    if (i % 4 === 0) {
+      svg += '<text x="' + (x + barW / 2) + '" y="' + (H - 4) +
+             '" text-anchor="middle" fill="#666" font-size="9" font-family="inherit">' +
+             esc(buckets[i].hour) + '</text>';
+    }
+  }
+
+  svg += '</svg>';
+  el.innerHTML = svg;
+}
+
+async function refreshActivity() {
+  try {
+    var buckets = await api('/api/stats/activity?hours=24');
+    renderActivityChart(buckets);
+  } catch (e) {
+    console.error('Activity chart failed:', e);
+  }
+}
+
+async function refreshEstimates() {
+  try {
+    estimateData = await api('/api/estimates');
+    taskEstimates = {};
+    if (estimateData && estimateData.estimates) {
+      for (var i = 0; i < estimateData.estimates.length; i++) {
+        var est = estimateData.estimates[i];
+        taskEstimates[est.task_id] = est;
+      }
+    }
+  } catch (e) {
+    console.error('Estimates failed:', e);
+    estimateData = null;
+  }
+}
+
+function formatEstimate(minutes) {
+  if (!minutes && minutes !== 0) return '--';
+  if (minutes < 60) return '~' + minutes + 'm';
+  var h = Math.floor(minutes / 60);
+  var m = minutes % 60;
+  return '~' + h + 'h ' + m + 'm';
+}
+
 function updateTimestamp() {
   const ago = Math.floor((Date.now() - lastFetch) / 1000);
   document.getElementById('updated').textContent = ago + 's ago';
@@ -1256,7 +1486,7 @@ function updateTimestamp() {
 
 async function refresh() {
   try {
-    const [sys, svcs, tasks, review, backlog, events] = await Promise.all([
+    var results = await Promise.all([
       api('/api/system'),
       api('/api/services'),
       api('/api/tasks'),
@@ -1264,6 +1494,9 @@ async function refresh() {
       api('/api/backlog'),
       api('/api/events'),
     ]);
+
+    var sys = results[0], svcs = results[1], tasks = results[2];
+    var review = results[3], backlog = results[4], events = results[5];
 
     lastFetch = Date.now();
     document.getElementById('live-dot').className = 'live-dot';
@@ -1287,7 +1520,10 @@ async function refresh() {
 // ── Init ────────────────────────────────────
 
 refresh();
+refreshEstimates().then(function() { rerender(); });
+refreshActivity();
 setInterval(refresh, REFRESH);
+setInterval(function() { refreshEstimates(); refreshActivity(); }, 30000);
 setInterval(updateTimestamp, 1000);
 </script>
 </body>

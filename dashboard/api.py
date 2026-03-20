@@ -6,9 +6,10 @@ import os
 import re
 import subprocess
 import time
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import psutil
 import yaml
@@ -41,7 +42,7 @@ STATIC_DIR = Path(__file__).parent
 # ── Helpers ──────────────────────────────────────────────
 
 
-def parse_frontmatter(text: str) -> tuple[dict, str]:
+def parse_frontmatter(text: str) -> Tuple[dict, str]:
     """Parse YAML frontmatter from markdown text."""
     if not text.startswith("---"):
         return {}, text
@@ -168,7 +169,7 @@ def review_reason(meta: dict, category: str, filename: str) -> str:
 
 def _get_machine_identity() -> dict:
     """Get machine name, chip, OS version, role from system commands and config."""
-    identity: dict[str, Any] = {}
+    identity = {}  # type: Dict[str, Any]
 
     # Hostname
     try:
@@ -594,7 +595,7 @@ async def get_debug():
     if debug_file:
         text = debug_file.read_text()
         # Parse bug entries — they start with ## or ### headings after the header
-        current_bug: dict[str, Any] | None = None
+        current_bug = None  # type: Optional[Dict[str, Any]]
         for line in text.split("\n"):
             if line.startswith("## ") and not line.startswith("## DEBUG_DETECTOR"):
                 if current_bug:
@@ -648,7 +649,7 @@ async def get_log(task_id: str):
     """Get log content for a task."""
     log_file = LOGS_DIR / f"{task_id}.log"
     summary_file = LOGS_DIR / f"{task_id}.summary.md"
-    result: dict[str, Any] = {"task_id": task_id}
+    result = {"task_id": task_id}  # type: Dict[str, Any]
     if summary_file.exists():
         result["summary"] = summary_file.read_text()
     if log_file.exists():
@@ -891,7 +892,7 @@ class ActionRequest(BaseModel):
     description: str = ""
 
 
-def _find_task_manifest(task_slug: str) -> tuple[Optional[Path], Optional[dict]]:
+def _find_task_manifest(task_slug: str) -> Tuple[Optional[Path], Optional[dict]]:
     """Find task manifest by slug (exact or partial match)."""
     if not TASKS_DIR.exists():
         return None, None
@@ -1115,7 +1116,7 @@ class EventCreate(BaseModel):
     title: str
     start: str
     end: str
-    freeze_projects: list[str] = []
+    freeze_projects: List[str] = []
     freeze_from: str = ""
     freeze_until: str = ""
     notes: str = ""
@@ -1144,6 +1145,308 @@ async def create_event(event: EventCreate):
     events.append(new_event)
     EVENTS_FILE.write_text(json.dumps(events, indent=2) + "\n")
     return {"status": "ok", "message": f"Event '{event.title}' added"}
+
+
+# ── Task Estimation ────────────────────────────────────
+
+
+def _load_all_tasks() -> List[dict]:
+    """Load all task manifests."""
+    tasks = []
+    if not TASKS_DIR.exists():
+        return tasks
+    for f in TASKS_DIR.glob("*.json"):
+        try:
+            tasks.append(json.loads(f.read_text()))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return tasks
+
+
+def _compute_duration_minutes(task: dict) -> Optional[float]:
+    """Compute duration in minutes for a completed task."""
+    started = task.get("started_at")
+    finished = task.get("finished_at") or task.get("completed_at")
+    if not started or not finished:
+        return None
+    try:
+        s = datetime.fromisoformat(started.replace("Z", "+00:00")).replace(tzinfo=None)
+        e = datetime.fromisoformat(finished.replace("Z", "+00:00")).replace(tzinfo=None)
+        mins = (e - s).total_seconds() / 60
+        if mins > 0:
+            return mins
+    except (ValueError, TypeError):
+        pass
+    return None
+
+
+def _slug_pattern(slug: str) -> str:
+    """Extract a pattern from a slug for matching similar tasks.
+
+    e.g. 'dpspice-phase2-dae-solver' -> 'dpspice-phase2'
+    """
+    if not slug:
+        return ""
+    parts = slug.split("-")
+    # Use first 2 parts as pattern, or full slug if only 1 part
+    if len(parts) >= 2:
+        return "-".join(parts[:2])
+    return slug
+
+
+def _estimate_task_minutes(task: dict, all_tasks: List[dict]) -> float:
+    """Estimate how long a task will take based on historical data."""
+    DEFAULT_ESTIMATE = 10.0
+
+    slug = task.get("slug", "")
+    project = task.get("project_name", "")
+    pattern = _slug_pattern(slug)
+
+    # Collect durations from similar completed tasks
+    durations = []  # type: List[float]
+    project_durations = []  # type: List[float]
+
+    for t in all_tasks:
+        if t.get("status") not in ("completed", "merged"):
+            continue
+        dur = _compute_duration_minutes(t)
+        if dur is None or dur <= 0:
+            continue
+
+        t_slug = t.get("slug", "")
+        t_project = t.get("project_name", "")
+
+        # Match by slug pattern
+        if pattern and _slug_pattern(t_slug) == pattern:
+            durations.append(dur)
+        # Match by project
+        elif project and t_project == project:
+            project_durations.append(dur)
+
+    if durations:
+        return sum(durations) / len(durations)
+    if project_durations:
+        return sum(project_durations) / len(project_durations)
+    return DEFAULT_ESTIMATE
+
+
+@app.get("/api/estimates")
+async def get_estimates():
+    """Get time estimates for queued/running tasks."""
+    all_tasks = _load_all_tasks()
+    now = datetime.utcnow()
+
+    # Separate active tasks by status
+    running = []
+    queued = []
+    for t in all_tasks:
+        if t.get("status") == "running":
+            running.append(t)
+        elif t.get("status") == "queued":
+            queued.append(t)
+
+    # Sort queued by dispatched_at
+    queued.sort(key=lambda t: t.get("dispatched_at", ""))
+
+    estimates = []
+    cumulative_wait = 0.0
+
+    # Running tasks: estimate remaining time
+    for t in running:
+        est_total = _estimate_task_minutes(t, all_tasks)
+        started = t.get("started_at")
+        elapsed = 0.0
+        if started:
+            try:
+                s = datetime.fromisoformat(started.replace("Z", "+00:00")).replace(tzinfo=None)
+                elapsed = (now - s).total_seconds() / 60
+            except (ValueError, TypeError):
+                pass
+        remaining = max(0, est_total - elapsed)
+        # Running tasks contribute to cumulative wait for queued tasks
+        cumulative_wait = max(cumulative_wait, remaining)
+
+        est_complete = now + timedelta(minutes=remaining)
+        estimates.append({
+            "task_id": t.get("id", ""),
+            "slug": t.get("slug", ""),
+            "status": "running",
+            "estimated_minutes": round(est_total),
+            "elapsed_minutes": round(elapsed),
+            "remaining_minutes": round(remaining),
+            "queue_position": 0,
+            "estimated_complete": est_complete.isoformat() + "Z",
+        })
+
+    # Queued tasks: estimate start and completion
+    for i, t in enumerate(queued):
+        est_minutes = _estimate_task_minutes(t, all_tasks)
+        est_start = now + timedelta(minutes=cumulative_wait)
+        est_complete = est_start + timedelta(minutes=est_minutes)
+
+        estimates.append({
+            "task_id": t.get("id", ""),
+            "slug": t.get("slug", ""),
+            "status": "queued",
+            "estimated_minutes": round(est_minutes),
+            "elapsed_minutes": 0,
+            "remaining_minutes": round(cumulative_wait + est_minutes),
+            "queue_position": i + 1,
+            "estimated_start": est_start.isoformat() + "Z",
+            "estimated_complete": est_complete.isoformat() + "Z",
+        })
+        cumulative_wait += est_minutes
+
+    # Total ETA
+    total_remaining = cumulative_wait
+    all_complete = now + timedelta(minutes=total_remaining)
+
+    return {
+        "estimates": estimates,
+        "total_remaining_minutes": round(total_remaining),
+        "all_complete": all_complete.isoformat() + "Z",
+    }
+
+
+# ── Stats Endpoints (Activity Graph) ──────────────────
+
+
+@app.get("/api/stats/activity")
+async def get_activity_stats(hours: int = Query(24)):
+    """Task activity over time in hourly buckets for the last N hours."""
+    all_tasks = _load_all_tasks()
+    now = datetime.utcnow()
+    cutoff = now - timedelta(hours=hours)
+
+    # Build hourly buckets
+    buckets = []  # type: List[Dict[str, Any]]
+    for h in range(hours):
+        bucket_start = cutoff + timedelta(hours=h)
+        bucket_end = bucket_start + timedelta(hours=1)
+        buckets.append({
+            "hour": bucket_start.strftime("%H:%M"),
+            "timestamp": bucket_start.isoformat() + "Z",
+            "completed": 0,
+            "running": 0,
+            "queued": 0,
+            "failed": 0,
+        })
+
+    for t in all_tasks:
+        status = t.get("status", "")
+
+        # For completed/merged tasks, count in the bucket where they finished
+        if status in ("completed", "merged"):
+            fin = t.get("finished_at") or t.get("completed_at") or t.get("merged_at")
+            if fin:
+                try:
+                    fin_dt = datetime.fromisoformat(fin.replace("Z", "+00:00")).replace(tzinfo=None)
+                    if fin_dt >= cutoff:
+                        idx = int((fin_dt - cutoff).total_seconds() / 3600)
+                        if 0 <= idx < len(buckets):
+                            buckets[idx]["completed"] += 1
+                except (ValueError, TypeError):
+                    pass
+
+        # For failed tasks
+        elif status == "failed":
+            fin = t.get("finished_at") or t.get("failed_at")
+            if fin:
+                try:
+                    fin_dt = datetime.fromisoformat(fin.replace("Z", "+00:00")).replace(tzinfo=None)
+                    if fin_dt >= cutoff:
+                        idx = int((fin_dt - cutoff).total_seconds() / 3600)
+                        if 0 <= idx < len(buckets):
+                            buckets[idx]["failed"] += 1
+                except (ValueError, TypeError):
+                    pass
+
+        # For running tasks, mark the bucket where they started
+        elif status == "running":
+            started = t.get("started_at")
+            if started:
+                try:
+                    s_dt = datetime.fromisoformat(started.replace("Z", "+00:00")).replace(tzinfo=None)
+                    if s_dt >= cutoff:
+                        idx = int((s_dt - cutoff).total_seconds() / 3600)
+                        if 0 <= idx < len(buckets):
+                            buckets[idx]["running"] += 1
+                    else:
+                        # Started before cutoff but still running — count in first bucket
+                        buckets[0]["running"] += 1
+                except (ValueError, TypeError):
+                    pass
+
+        # For queued tasks, mark the bucket where they were dispatched
+        elif status == "queued":
+            dispatched = t.get("dispatched_at")
+            if dispatched:
+                try:
+                    d_dt = datetime.fromisoformat(dispatched.replace("Z", "+00:00")).replace(tzinfo=None)
+                    if d_dt >= cutoff:
+                        idx = int((d_dt - cutoff).total_seconds() / 3600)
+                        if 0 <= idx < len(buckets):
+                            buckets[idx]["queued"] += 1
+                    else:
+                        buckets[0]["queued"] += 1
+                except (ValueError, TypeError):
+                    pass
+
+    return buckets
+
+
+@app.get("/api/stats/daily")
+async def get_daily_stats(days: int = Query(7)):
+    """Tasks completed per day for the last N days."""
+    all_tasks = _load_all_tasks()
+    now = datetime.utcnow()
+
+    # Build daily buckets
+    day_counts = {}  # type: Dict[str, Dict[str, int]]
+    for d in range(days):
+        date = now - timedelta(days=days - 1 - d)
+        key = date.strftime("%Y-%m-%d")
+        day_counts[key] = {"completed": 0, "merged": 0, "failed": 0}
+
+    for t in all_tasks:
+        status = t.get("status", "")
+        fin = t.get("finished_at") or t.get("completed_at") or t.get("merged_at")
+        if not fin:
+            continue
+        try:
+            fin_dt = datetime.fromisoformat(fin.replace("Z", "+00:00")).replace(tzinfo=None)
+            key = fin_dt.strftime("%Y-%m-%d")
+            if key in day_counts:
+                if status in ("completed", "merged_into"):
+                    day_counts[key]["completed"] += 1
+                elif status == "merged":
+                    day_counts[key]["merged"] += 1
+                elif status == "failed":
+                    day_counts[key]["failed"] += 1
+        except (ValueError, TypeError):
+            pass
+
+    result = []
+    for key in sorted(day_counts.keys()):
+        entry = day_counts[key]
+        entry["day"] = key
+        result.append(entry)
+    return result
+
+
+@app.get("/api/stats/projects")
+async def get_project_stats():
+    """Task counts by project."""
+    all_tasks = _load_all_tasks()
+    counts = defaultdict(int)
+    for t in all_tasks:
+        if t.get("status") in ("completed", "merged", "merged_into"):
+            proj = t.get("project_name", "unknown")
+            counts[proj] += 1
+
+    result = [{"project_name": k, "count": v} for k, v in counts.items()]
+    result.sort(key=lambda x: x["count"], reverse=True)
+    return result
 
 
 # ── Static file serving ─────────────────────────────────
