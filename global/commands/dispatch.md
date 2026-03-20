@@ -151,7 +151,7 @@ WORKER RULES:
 10. After finishing, check ~/.claude-fleet/tasks/ for more tasks with status=queued. If found, update the next one to running and start it."
 ```
 
-Read `WORKER_CLAUDE_BIN` from `~/.claude-fleet/machine-role.conf` (default: `/Users/doyungu/.local/bin/claude`).
+Read `WORKER_CLAUDE_BIN` from `~/.claude-fleet/machine-role.conf` (default: `$HOME/.local/bin/claude`).
 
 ```bash
 PROJECT_DIR="<project_dir>"
