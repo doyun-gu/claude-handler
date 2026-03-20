@@ -145,7 +145,7 @@ BUG_ENTRY
     log "${RED}NEW BUG logged: $slug — $description${NC}"
 
     # Email notification for new bugs
-    "$HOME/Developer/claude-handler/fleet-notify.sh" --bug-detected "$slug" 2>/dev/null &
+    # DISABLED "$HOME/Developer/claude-handler/fleet-notify.sh" --bug-detected "$slug" 2>/dev/null &
 
     # Also write to review queue so Commander sees it on startup
     cat > "$FLEET_DIR/review-queue/bug-$slug.md" << REVIEW
