@@ -101,6 +101,167 @@ See [notion/README.md](notion/README.md) for Notion MCP server setup and workspa
 ### CLAUDE.md template
 See `templates/project-claude-md.md` for the reference structure used when generating per-project CLAUDE.md files.
 
+## Fleet System (Mac Mini Worker)
+
+The fleet system turns a Mac Mini into an autonomous worker that picks up tasks dispatched from your MacBook Pro (Commander), runs Claude sessions, and opens PRs — all unattended.
+
+### Quick Start: New Mac Mini Setup
+
+```bash
+# 1. Clone the repo
+git clone https://github.com/doyun-gu/claude-handler.git ~/Developer/claude-handler
+cd ~/Developer/claude-handler
+
+# 2. Install symlinks + fleet directories
+chmod +x install.sh
+./install.sh
+
+# 3. Set machine role
+mkdir -p ~/.claude-fleet
+echo 'MACHINE_ROLE=worker' > ~/.claude-fleet/machine-role.conf
+
+# 4. Ensure prerequisites
+#    - Claude CLI: ~/.local/bin/claude
+#    - GitHub CLI: gh auth login
+#    - tmux: brew install tmux
+
+# 5. Install the launchd plist (starts on boot, keeps everything alive)
+cp launchd/com.fleet.supervisor.plist ~/Library/LaunchAgents/
+launchctl load ~/Library/LaunchAgents/com.fleet.supervisor.plist
+
+# 6. Verify it's running
+tmux ls
+# Should show: worker-daemon, demo-health, fleet-dashboard
+```
+
+To stop the fleet: `launchctl unload ~/Library/LaunchAgents/com.fleet.supervisor.plist`
+
+### Process Supervision Architecture
+
+The fleet uses a three-layer supervision model:
+
+```
+launchd (macOS)
+  └─ fleet-supervisor.sh          ← kept alive by launchd (KeepAlive + RunAtLoad)
+       ├─ tmux: worker-daemon     ← picks tasks from queue, runs Claude sessions
+       ├─ tmux: demo-health       ← health checks, log scanning, auto-heal
+       └─ tmux: fleet-dashboard   ← web dashboard API (if api.py exists)
+```
+
+**launchd** (`com.fleet.supervisor.plist`) is the root. It starts `fleet-supervisor.sh` at login and restarts it if it crashes. The `ThrottleInterval` of 10 seconds prevents rapid restart loops.
+
+**fleet-supervisor.sh** runs an infinite loop (every 30s) that checks whether each tmux session exists. If a session is dead, it recreates it with the correct startup command. This means individual tmux sessions can crash and recover without manual intervention.
+
+**tmux sessions** run the actual services. Each session is independent — killing one doesn't affect the others.
+
+| Session | Script | Purpose |
+|---------|--------|---------|
+| `worker-daemon` | `worker-daemon.sh` | Polls `~/.claude-fleet/tasks/` for queued tasks, runs Claude autonomously |
+| `demo-health` | `demo-healthcheck.sh` | Health checks, error detection, auto-heal, bug tracking |
+| `fleet-dashboard` | `dashboard/api.py` | REST API for the fleet web dashboard |
+
+### Bug Database (`bug-db.json`)
+
+The health checker maintains a JSON bug database at `~/.claude-fleet/bug-db.json` that tracks every error it detects across services.
+
+**Structure:** Each bug is keyed by a slug (e.g., `api-TypeError-missing-arg`, `web-crash`):
+
+```json
+{
+  "bugs": {
+    "api-TypeError-missing-arg": {
+      "severity": "high",
+      "description": "Python error in API: TypeError missing arg",
+      "first_seen": "2026-03-20T10:00:00Z",
+      "last_seen": "2026-03-20T11:05:00Z",
+      "occurrences": 3,
+      "status": "new",
+      "heal_count": 1,
+      "heal_timestamps": [1742468700.0],
+      "escalated": false,
+      "last_error": "Traceback (most recent call last)..."
+    }
+  }
+}
+```
+
+**Bug lifecycle:** `new` → auto-healed (`healed`) or dispatched to worker (`fixed`) or too many heals (`escalated`).
+
+**Auto-heal with cooldown protection:**
+
+1. When a bug is detected, the health checker first checks `~/.claude-fleet/bug-knowledge/*.md` for a known fix (bash commands in a fenced code block).
+2. If no KB match, it tries built-in pattern matching (webpack cache, ENOENT, port conflicts, crashes).
+3. **Cooldown** prevents heal loops: if a bug has been healed 3+ times in 300 seconds, auto-heal is skipped.
+4. **Escalation** at 10 total heals: the bug is marked `escalated` and auto-heal stops permanently for that slug.
+5. If 3+ new bugs or 1+ critical bug accumulates, the health checker auto-creates a worker task to investigate and fix them.
+
+The bug database is rendered to `DEBUG_DETECTOR.md` (in the monitored project directory) after every update, capped at 50 bugs sorted by last seen.
+
+### Troubleshooting
+
+**Health checker crash loop**
+
+Symptom: `demo-health` tmux session keeps dying and restarting.
+
+```bash
+# Check the log for the root cause
+tail -100 ~/.claude-fleet/logs/demo-health.log
+
+# Common cause: the monitored project directory doesn't exist
+ls ~/Developer/dynamic-phasors/DPSpice-com
+
+# Common cause: python3 not in PATH
+which python3
+
+# If the health checker isn't needed for your setup, just let it restart
+# harmlessly — the supervisor will keep trying every 30s but it won't
+# affect the worker daemon
+```
+
+**Dashboard shows all dashes**
+
+Symptom: The fleet dashboard UI loads but shows `—` for all metrics.
+
+```bash
+# Check if the dashboard API is actually running
+curl http://localhost:5111/health
+
+# Check if the tmux session exists
+tmux has-session -t fleet-dashboard 2>/dev/null && echo "running" || echo "dead"
+
+# Check the dashboard log for Python errors
+tail -50 ~/.claude-fleet/logs/dashboard.log
+
+# Common cause: missing Python dependencies
+cd ~/Developer/claude-handler/dashboard && pip3 install -r requirements.txt
+
+# Common cause: fleet data files don't exist yet
+ls ~/.claude-fleet/tasks/*.json  # needs at least one task to show data
+```
+
+**tmux sessions not restarting**
+
+Symptom: A tmux session dies and doesn't come back.
+
+```bash
+# Verify the supervisor is running
+pgrep -f fleet-supervisor.sh
+
+# If not, check launchd
+launchctl list | grep fleet
+
+# If launchd shows it but supervisor isn't running, check logs
+cat ~/.claude-fleet/logs/supervisor-stderr.log
+
+# Manual restart
+launchctl unload ~/Library/LaunchAgents/com.fleet.supervisor.plist
+launchctl load ~/Library/LaunchAgents/com.fleet.supervisor.plist
+
+# Nuclear option: start supervisor directly
+tmux new-session -d -s fleet-supervisor \
+  "cd ~/Developer/claude-handler && ./fleet-supervisor.sh"
+```
+
 ## File Structure
 
 ```
@@ -109,6 +270,13 @@ claude-handler/
 ├── CLAUDE.md                          # Meta: docs for this repo
 ├── install.sh                         # Symlinks into ~/.claude/
 ├── uninstall.sh                       # Removes symlinks
+├── worker-daemon.sh                   # Task queue runner (Claude sessions)
+├── fleet-supervisor.sh                # Process supervisor (restarts tmux sessions)
+├── demo-healthcheck.sh                # Health checks + bug tracking + auto-heal
+├── launchd/
+│   └── com.fleet.supervisor.plist     # macOS launchd agent for boot persistence
+├── dashboard/
+│   └── api.py                         # Fleet dashboard REST API
 ├── global/
 │   ├── CLAUDE.md                      # Core — the global instructions
 │   └── commands/
