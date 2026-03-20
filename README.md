@@ -87,6 +87,142 @@ stateDiagram-v2
     Merged --> [*]
 ```
 
+## Worker Daemon Architecture
+
+The Worker Daemon is the autonomous engine that processes tasks without human intervention. It manages parallel execution, freeze windows, and async computation.
+
+### Task Processing Flow
+
+```mermaid
+flowchart TB
+    subgraph Daemon["worker-daemon.sh (main loop)"]
+        Poll["Poll ~/.claude-fleet/tasks/<br/>every 5-30s"] --> Scan{Scan for<br/>queued tasks}
+        Scan --> |found| Freeze{Project<br/>frozen?}
+        Freeze --> |yes| Skip["Skip — wait for<br/>freeze window to end"]
+        Freeze --> |no| Running{Project already<br/>has running task?}
+        Running --> |yes| Skip2["Skip — 1 task<br/>per project"]
+        Running --> |no| Launch["Launch task<br/>in background"]
+        Scan --> |none| Idle{Idle timer<br/>started?}
+        Idle --> |"> 30 min"| Backlog["Check backlog<br/>for maintenance tasks"]
+        Idle --> |"< 30 min"| Wait["Sleep and re-poll"]
+    end
+
+    Launch --> TaskFlow
+
+    subgraph TaskFlow["Task Execution (per task)"]
+        Checkout["git checkout -b worker/task-name"] --> ReadPrompt["Read task prompt<br/>from manifest JSON"]
+        ReadPrompt --> RunClaude["Run Claude Code<br/>--dangerously-skip-permissions<br/>--max-turns 200"]
+        RunClaude --> Done{Exit code?}
+        Done --> |0| Success["status: completed<br/>Push branch + open PR"]
+        Done --> |non-0| Failure["status: failed<br/>Write error to review queue"]
+        Success --> AutoMerge{Slug contains<br/>bug/fix/docs?}
+        AutoMerge --> |yes| Merge["Auto-merge PR"]
+        AutoMerge --> |no| ReviewQueue["Add to review queue<br/>for Commander"]
+    end
+
+    style Daemon fill:#f0fdf4,stroke:#22c55e
+    style TaskFlow fill:#f0f9ff,stroke:#3b82f6
+```
+
+### Parallel Execution Model
+
+The daemon runs **one task per project** in parallel. Multiple projects can execute simultaneously, but tasks for the same project queue behind each other.
+
+```mermaid
+gantt
+    title Parallel Task Execution (example)
+    dateFormat HH:mm
+    axisFormat %H:%M
+
+    section DPSpice
+        N-1 contingency + exports    :active, dp1, 16:25, 60min
+        Unified editor + AI panel    :dp2, after dp1, 45min
+        Control blocks               :dp3, after dp2, 60min
+
+    section claude-handler
+        Dashboard polish             :ch1, 16:25, 20min
+        Public-ready docs            :ch2, after ch1, 15min
+
+    section doyungu-com
+        Design system                :dy1, 16:25, 15min
+```
+
+### Async Computation (Rule 11)
+
+Worker Claude uses `run_in_background` for long-running computations instead of blocking. This dramatically reduces idle time during test suites and simulations.
+
+```mermaid
+sequenceDiagram
+    participant C as Claude Worker
+    participant BG as Background Process
+    participant FS as Filesystem
+
+    Note over C: ❌ Old behavior (blocking)
+    C->>C: Write solver code
+    C->>C: pytest (wait 5 min...)
+    C->>C: Read results
+    C->>C: Write next feature
+
+    Note over C,BG: ✅ New behavior (async)
+    C->>C: Write solver code
+    C->>BG: run_in_background: pytest
+    C->>C: Write next feature (no wait)
+    C->>C: Write docs
+    BG-->>FS: Results ready
+    C->>FS: Check test results
+    C->>C: Fix failures if any
+    C->>C: Commit all
+```
+
+### Freeze Windows
+
+Events in `~/.claude-fleet/events.json` can freeze specific projects during critical periods (demos, deployments):
+
+```json
+[{
+  "title": "Supervisor Meeting",
+  "freeze_projects": ["DPSpice-com"],
+  "freeze_from": "2026-03-20T11:00:00Z",
+  "freeze_until": "2026-03-20T12:15:00Z"
+}]
+```
+
+During a freeze, the daemon skips queued tasks for that project. Tasks for other projects continue normally.
+
+### Task Manifest Format
+
+Each task is a JSON file in `~/.claude-fleet/tasks/`:
+
+```json
+{
+  "id": "20260320-154351-unified-editor-ai-panel",
+  "slug": "unified-editor-ai-panel",
+  "branch": "worker/unified-editor-ai-panel-20260320",
+  "project_name": "DPSpice-com",
+  "project_path": "/Users/you/Developer/my-project",
+  "status": "queued",
+  "prompt": "Implement feature X...",
+  "budget_usd": 20,
+  "permission_mode": "dangerously-skip-permissions",
+  "dispatched_at": "2026-03-20T15:43:51Z"
+}
+```
+
+**Status lifecycle:** `queued` → `running` → `completed` / `failed` / `blocked` → `merged`
+
+### Review Queue
+
+When tasks complete, the daemon writes to `~/.claude-fleet/review-queue/`:
+
+| File Pattern | Meaning | Commander Action |
+|---|---|---|
+| `*-completed.md` | PR ready for review | `/worker-review` |
+| `*-failed.md` | Task crashed | Check logs, retry |
+| `*-blocked.md` | Worker stuck | Investigate, unblock |
+| `*-decision.md` | Worker made a choice, wants confirmation | Review and confirm |
+
+Auto-mergeable tasks (slugs containing `bug`, `fix`, `docs`, `sync`, etc.) skip the review queue and merge directly.
+
 ## Quick Start
 
 ### Single Machine (Commander only)
