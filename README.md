@@ -223,6 +223,28 @@ When tasks complete, the daemon writes to `~/.claude-fleet/review-queue/`:
 
 Auto-mergeable tasks (slugs containing `bug`, `fix`, `docs`, `sync`, etc.) skip the review queue and merge directly.
 
+## Post-Push Sync Protocol
+
+Every `git push` from the Commander must sync the Worker immediately. The Worker runs live services from local repos — stale code means a broken dashboard, preview, or API.
+
+```mermaid
+sequenceDiagram
+    participant CMD as Commander
+    participant GH as GitHub
+    participant WRK as Worker
+
+    CMD->>GH: git push origin main
+    CMD->>WRK: ssh worker "cd ~/Developer/<repo> && git pull"
+
+    alt Service runs from this repo
+        CMD->>WRK: Restart affected tmux session
+    end
+
+    Note over CMD,WRK: Never leave the Worker behind GitHub
+```
+
+If your Worker runs services from the repo (dashboard, preview, API), restart the relevant tmux session after syncing.
+
 ## Quick Start
 
 ### Single Machine (Commander only)
