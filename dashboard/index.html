@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fleet Monitor</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -87,69 +88,14 @@ body {
   color: var(--text-dim);
 }
 
-/* ── Machine card ──────────────────────── */
-.machine-card {
-  padding: 10px 20px;
-  border-left: 3px solid var(--green);
-  background: var(--bg-card);
-  border-radius: 0 4px 4px 0;
-}
-.machine-card.unhealthy { border-left-color: var(--red); }
-.machine-row {
+/* ── System bar ─────────────────────────── */
+.sys-bar {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  gap: 24px;
   flex-wrap: wrap;
   font-size: 13px;
 }
-.machine-row + .machine-row { margin-top: 4px; }
-.machine-name {
-  font-weight: 600;
-  color: var(--text-bright);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.machine-name .online-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--green);
-  display: inline-block;
-  flex-shrink: 0;
-}
-.machine-name .online-dot.offline { background: var(--text-dim); }
-.machine-chip { color: var(--text-dim); }
-.machine-stat { white-space: nowrap; }
-.machine-stat .val { color: var(--text-bright); }
-.machine-stat .sub { color: var(--text-dim); font-size: 12px; }
-.role-badge {
-  display: inline-block;
-  padding: 1px 6px;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: 500;
-  background: #1a3a4a;
-  color: #7bc;
-}
-.role-badge.commander { background: #2a2a1a; color: #aa8; }
-.commander-line {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px solid #2a2a2a;
-}
-.commander-line .online-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-dim);
-  display: inline-block;
-}
+.sys-bar .val { color: var(--text-bright); }
 
 /* ── Services bar ───────────────────────── */
 .svc-bar {
@@ -382,47 +328,87 @@ tr.queued td { color: var(--text-dim); }
   margin-top: 16px;
 }
 
-/* ── Collapsible ────────────────────────── */
-.collapsed .section-body { display: none; }
+/* ── Charts ─────────────────────────────── */
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  margin-top: 6px;
+}
+.chart-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+}
+.chart-card h3 {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.chart-card canvas {
+  max-height: 160px;
+}
 
-/* ── Filter pills ──────────────────────── */
-.filter-bar {
+/* ── Project filter pills ──────────────── */
+.filter-pills {
   display: flex;
-  align-items: center;
   gap: 6px;
   flex-wrap: wrap;
   margin-bottom: 8px;
-  font-size: 12px;
-}
-.filter-bar .filter-sep {
-  width: 1px;
-  height: 16px;
-  background: var(--border);
-  margin: 0 4px;
-  flex-shrink: 0;
+  margin-top: 6px;
 }
 .filter-pill {
   display: inline-block;
-  padding: 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-dim);
-  font-family: inherit;
+  padding: 3px 10px;
+  border-radius: 12px;
   font-size: 11px;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-  white-space: nowrap;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-dim);
+  font-family: inherit;
+  transition: all 0.15s;
 }
 .filter-pill:hover {
   background: var(--bg-hover);
   color: var(--text);
 }
 .filter-pill.active {
-  background: #2a3a2a;
-  color: var(--text-bright);
-  border-color: #4a5a4a;
+  background: #1a3a4a;
+  color: #7bc;
+  border-color: #2a5a6a;
 }
+
+/* ── Sync status ───────────────────────── */
+.sync-bar {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  align-items: center;
+}
+.sync-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.sync-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.sync-dot.synced { background: var(--green); }
+.sync-dot.unsynced { background: var(--orange); }
+.sync-dot.dirty { background: var(--red); }
+.sync-dot.unknown { background: var(--text-dim); }
+
+/* ── Collapsible ────────────────────────── */
+.collapsed .section-body { display: none; }
 
 /* ── Empty state ────────────────────────── */
 .empty { color: var(--text-dim); font-style: italic; padding: 8px 0; }
@@ -445,17 +431,10 @@ tr.queued td { color: var(--text-dim); }
   /* Hide columns on mobile */
   .hide-mobile { display: none; }
 
-  /* 1. Machine card — stack vertically on mobile */
-  .machine-card { padding: 8px 12px; }
-  .machine-row {
+  /* 1. System stats — stack vertically (1 column) */
+  .sys-bar {
     flex-direction: column;
     gap: 4px;
-    align-items: flex-start;
-  }
-  .commander-line {
-    flex-direction: column;
-    gap: 4px;
-    align-items: flex-start;
   }
 
   /* 2. Services/quick links — wrap to 2 per row */
@@ -538,14 +517,33 @@ tr.queued td { color: var(--text-dim); }
   /* 8. Completed — task name + status badge only on mobile */
   .hide-mobile-completed { display: none; }
 
-  /* 10. Filter pills — wrap, 44px tap targets */
-  .filter-bar { gap: 4px; }
+  /* Charts — single column on mobile */
+  .charts-grid {
+    grid-template-columns: 1fr;
+  }
+  .chart-card canvas {
+    max-height: 200px;
+  }
+
+  /* Filter pills — scroll horizontally */
+  .filter-pills {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 4px;
+  }
   .filter-pill {
-    min-height: 36px;
-    padding: 6px 10px;
-    font-size: 12px;
+    flex-shrink: 0;
+    min-height: 44px;
     display: inline-flex;
     align-items: center;
+  }
+
+  /* Sync bar — stack */
+  .sync-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
 }
 </style>
@@ -561,33 +559,13 @@ tr.queued td { color: var(--text-dim); }
   </div>
 </div>
 
-<!-- System / Machine Identity -->
+<!-- System -->
 <div class="section" id="sys-section">
-  <div class="machine-card" id="machine-card">
-    <div class="machine-row" id="machine-row-1">
-      <span class="machine-name">
-        <span class="online-dot" id="machine-dot"></span>
-        <span id="machine-name">--</span>
-      </span>
-      <span class="machine-chip" id="machine-chip"></span>
-      <span class="machine-stat">CPU: <span class="val" id="sys-cpu">--</span></span>
-      <span class="machine-stat">RAM: <span class="val" id="sys-ram">--</span></span>
-      <span class="machine-stat">Disk: <span class="val" id="sys-disk">--</span></span>
-      <span class="machine-stat">Uptime: <span class="val" id="sys-uptime">--</span></span>
-    </div>
-    <div class="machine-row" id="machine-row-2">
-      <span class="role-badge" id="machine-role">--</span>
-      <span class="machine-stat" id="machine-os"></span>
-      <span class="machine-stat"><span class="val" id="machine-cores">--</span> <span class="sub">cores</span></span>
-      <span class="machine-stat"><span class="val" id="sys-ram-pct">--</span> <span class="sub">RAM used</span></span>
-      <span class="machine-stat"><span class="val" id="sys-disk-pct">--</span> <span class="sub">disk used</span></span>
-    </div>
-    <div class="commander-line" id="commander-line" style="display:none">
-      <span class="online-dot"></span>
-      <span>MacBook Pro</span>
-      <span class="role-badge commander">Commander</span>
-      <span id="commander-last-seen">--</span>
-    </div>
+  <div class="sys-bar" id="sys-bar">
+    <span>CPU: <span class="val" id="sys-cpu">--</span></span>
+    <span>RAM: <span class="val" id="sys-ram">--</span></span>
+    <span>Disk: <span class="val" id="sys-disk">--</span></span>
+    <span>Uptime: <span class="val" id="sys-uptime">--</span></span>
   </div>
 </div>
 
@@ -631,10 +609,41 @@ tr.queued td { color: var(--text-dim); }
   </div>
 </div>
 
+<!-- Charts -->
+<div class="section" id="charts-section">
+  <div class="section-header" onclick="toggleSection('charts-section')">
+    <span class="section-label" style="margin-bottom:0">Progress</span>
+    <span class="toggle" id="charts-toggle">[hide]</span>
+  </div>
+  <div class="section-body">
+    <div class="charts-grid">
+      <div class="chart-card">
+        <h3>Tasks / Day (7d)</h3>
+        <canvas id="chart-daily"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Queue Depth (24h)</h3>
+        <canvas id="chart-queue"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>By Project</h3>
+        <canvas id="chart-projects"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- my-world Sync Status -->
+<div class="section" id="sync-section">
+  <div class="section-label">my-world Sync</div>
+  <div class="sync-bar" id="sync-bar">
+    <span class="empty">Loading...</span>
+  </div>
+</div>
+
 <!-- Active Tasks -->
 <div class="section" id="active-section">
   <div class="section-label">Active Tasks</div>
-  <div class="filter-bar" id="active-filters"></div>
   <div id="active-body"></div>
 </div>
 
@@ -644,9 +653,9 @@ tr.queued td { color: var(--text-dim); }
     <span class="section-label" style="margin-bottom:0">Completed <span id="completed-count"></span></span>
     <span class="toggle" id="completed-toggle">[hide]</span>
   </div>
-  <div class="section-body" id="completed-body" style="margin-top:6px">
-    <div class="filter-bar" id="completed-filters"></div>
-    <div id="completed-table"></div>
+  <div class="section-body" style="margin-top:6px">
+    <div class="filter-pills" id="project-filters"></div>
+    <div id="completed-body"></div>
   </div>
 </div>
 
@@ -673,9 +682,20 @@ tr.queued td { color: var(--text-dim); }
 <script>
 const REFRESH = 10000;
 let lastFetch = 0;
-let currentTimeFilter = 'today';
-let currentProjectFilter = 'all';
-let allTasks = [];
+let activeProjectFilter = null;  // null = show all
+let allTasks = [];  // cached for filtering
+
+// ── Chart instances (reuse to avoid memory leaks) ────────
+let chartDaily = null;
+let chartQueue = null;
+let chartProjects = null;
+
+// Chart.js dark theme defaults
+const chartDefaults = {
+  color: '#888',
+  borderColor: '#333',
+  backgroundColor: 'transparent',
+};
 
 // ── Helpers ─────────────────────────────────
 
@@ -822,152 +842,26 @@ async function doAutofix(slug, btn) {
   }
 }
 
-// ── Filters ─────────────────────────────────
-
-function getProjectCounts(tasks) {
-  const counts = {};
-  for (let i = 0; i < tasks.length; i++) {
-    const p = tasks[i].project_name || 'unknown';
-    counts[p] = (counts[p] || 0) + 1;
-  }
-  return counts;
-}
-
-function timeCutoff(filter) {
-  if (filter === 'all') return 0;
-  if (filter === '7days') return Date.now() - 7 * 24 * 3600 * 1000;
-  // 'today' — start of today
-  const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-}
-
-function filterTasks(tasks, statuses) {
-  const cutoff = timeCutoff(currentTimeFilter);
-  return tasks.filter(function(t) {
-    if (statuses && statuses.indexOf(t.status) === -1) return false;
-    if (currentProjectFilter !== 'all' && (t.project_name || 'unknown') !== currentProjectFilter) return false;
-    if (cutoff > 0) {
-      const ts = t.finished_at || t.merged_at || t.started_at || t.created_at;
-      if (!ts || new Date(ts).getTime() < cutoff) return false;
-    }
-    return true;
-  });
-}
-
-function setTimeFilter(val) {
-  currentTimeFilter = val;
-  rerender();
-}
-
-function setProjectFilter(val) {
-  currentProjectFilter = val;
-  rerender();
-}
-
-function renderFilterBar(containerId, tasks) {
-  let el = document.getElementById(containerId);
-  if (!el) return;
-
-  const projectCounts = getProjectCounts(tasks);
-  const projects = Object.keys(projectCounts).sort();
-
-  let html = '';
-  // Time pills
-  html += '<span class="filter-pill' + (currentTimeFilter === 'today' ? ' active' : '') + '" onclick="setTimeFilter(\'today\')">Today</span>';
-  html += '<span class="filter-pill' + (currentTimeFilter === '7days' ? ' active' : '') + '" onclick="setTimeFilter(\'7days\')">7 Days</span>';
-  html += '<span class="filter-pill' + (currentTimeFilter === 'all' ? ' active' : '') + '" onclick="setTimeFilter(\'all\')">All</span>';
-
-  // Separator
-  html += '<span class="filter-sep"></span>';
-
-  // Project pills
-  html += '<span class="filter-pill' + (currentProjectFilter === 'all' ? ' active' : '') + '" onclick="setProjectFilter(\'all\')">All Projects</span>';
-  for (let i = 0; i < projects.length; i++) {
-    const p = projects[i];
-    const isActive = currentProjectFilter === p ? ' active' : '';
-    html += '<span class="filter-pill' + isActive + '" onclick="setProjectFilter(\'' + esc(p).replace(/'/g, "\\'") + '\')">' + esc(p) + ' (' + projectCounts[p] + ')</span>';
-  }
-
-  el.innerHTML = html;
-}
-
-function rerender() {
-  renderFilterBar('active-filters', allTasks);
-  renderFilterBar('completed-filters', allTasks);
-  renderActiveTasks(allTasks);
-  renderCompleted(allTasks);
-}
-
 // ── Renderers ───────────────────────────────
 
 function renderSystem(data) {
-  // Row 1: Machine name + chip + main metrics
   document.getElementById('sys-cpu').textContent = data.cpu_percent + '%';
   document.getElementById('sys-ram').textContent = data.ram_used_gb + '/' + data.ram_total_gb + ' GB';
   document.getElementById('sys-disk').textContent = (data.disk_free_gb || '--') + ' GB free';
   document.getElementById('sys-uptime').textContent = data.uptime || '--';
-
-  // Machine identity
-  var name = data.machine_name || 'unknown';
-  // Prettify common hostnames
-  if (name.toLowerCase().indexOf('mac-mini') >= 0 || name.toLowerCase().indexOf('macmini') >= 0) {
-    name = 'Mac mini';
-  } else if (name.toLowerCase().indexOf('macbook') >= 0) {
-    name = 'MacBook Pro';
-  }
-  document.getElementById('machine-name').textContent = name;
-
-  var chip = data.chip || '';
-  document.getElementById('machine-chip').textContent = chip;
-
-  // Row 2: Role + OS + core count + usage percentages
-  var roleEl = document.getElementById('machine-role');
-  var role = data.role || 'unknown';
-  roleEl.textContent = role.charAt(0).toUpperCase() + role.slice(1);
-  roleEl.className = 'role-badge' + (role === 'commander' ? ' commander' : '');
-
-  document.getElementById('machine-os').textContent = data.os_version || '';
-  document.getElementById('machine-cores').textContent = data.core_count || '--';
-  document.getElementById('sys-ram-pct').textContent = (data.ram_percent || '--') + '%';
-  document.getElementById('sys-disk-pct').textContent = (data.disk_percent || '--') + '%';
-
-  // Commander last seen
-  var cmdLine = document.getElementById('commander-line');
-  if (data.commander_last_seen) {
-    cmdLine.style.display = '';
-    document.getElementById('commander-last-seen').textContent = 'Last seen: ' + data.commander_last_seen;
-  } else {
-    cmdLine.style.display = 'none';
-  }
-
-  // Health: card border color (green if online, check services later)
-  var card = document.getElementById('machine-card');
-  card.className = 'machine-card';  // reset to healthy
 }
 
 function renderServices(svcs) {
   const bar = document.getElementById('svc-bar');
-  let anyDown = false;
   bar.innerHTML = svcs.map(function(s) {
     const up = s.status === 'up';
-    if (!up) anyDown = true;
     const label = s.port ? s.name + ':' + s.port : s.name;
     return '<span>' + esc(label) + ' <span class="svc-dot ' + (up ? 'up' : 'down') + '"></span></span>';
   }).join('');
-  // Update machine card health
-  var card = document.getElementById('machine-card');
-  if (anyDown) {
-    card.classList.add('unhealthy');
-  } else {
-    card.classList.remove('unhealthy');
-  }
 }
 
 function renderActiveTasks(tasks) {
-  const all = tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; });
-  const active = all.filter(function(t) {
-    return currentProjectFilter === 'all' || (t.project_name || 'unknown') === currentProjectFilter;
-  });
+  const active = tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; });
   const el = document.getElementById('active-body');
 
   if (active.length === 0) {
@@ -991,25 +885,69 @@ function renderActiveTasks(tasks) {
   el.innerHTML = html;
 }
 
-function renderCompleted(tasks) {
-  const cutoff = timeCutoff(currentTimeFilter);
-  const completedStatuses = ['completed', 'merged', 'failed'];
+// ── Project filter ──────────────────────────
+
+function setProjectFilter(project) {
+  activeProjectFilter = project;
+  // Re-render pills active state
+  document.querySelectorAll('.filter-pill').forEach(function(pill) {
+    pill.classList.toggle('active', pill.dataset.project === (project || ''));
+  });
+  // Re-render completed with filter
+  renderCompleted(allTasks);
+}
+
+function renderProjectFilters(tasks) {
+  const cutoff = Date.now() - 24 * 3600 * 1000;
   const recent = tasks.filter(function(t) {
-    if (completedStatuses.indexOf(t.status) === -1) return false;
+    if (t.status !== 'completed' && t.status !== 'merged' && t.status !== 'failed') return false;
+    const fin = t.finished_at || t.merged_at;
+    return fin && new Date(fin).getTime() > cutoff;
+  });
+
+  // Count per project
+  const counts = {};
+  for (let i = 0; i < recent.length; i++) {
+    const p = recent[i].project_name || 'unknown';
+    counts[p] = (counts[p] || 0) + 1;
+  }
+
+  const el = document.getElementById('project-filters');
+  if (Object.keys(counts).length <= 1) {
+    el.innerHTML = '';
+    return;
+  }
+
+  let html = '<button class="filter-pill' + (activeProjectFilter === null ? ' active' : '') + '" data-project="" onclick="setProjectFilter(null)">All (' + recent.length + ')</button>';
+  const sorted = Object.entries(counts).sort(function(a, b) { return b[1] - a[1]; });
+  for (let i = 0; i < sorted.length; i++) {
+    const name = sorted[i][0];
+    const count = sorted[i][1];
+    const isActive = activeProjectFilter === name;
+    html += '<button class="filter-pill' + (isActive ? ' active' : '') + '" data-project="' + esc(name) + '" onclick="setProjectFilter(\'' + esc(name).replace(/'/g, "\\'") + '\')">' + esc(name) + ' (' + count + ')</button>';
+  }
+  el.innerHTML = html;
+}
+
+function renderCompleted(tasks) {
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  let recent = tasks.filter(function(t) {
+    if (t.status !== 'completed' && t.status !== 'merged' && t.status !== 'failed') return false;
     const fin = t.finished_at || t.merged_at;
     if (!fin) return false;
-    if (cutoff > 0 && new Date(fin).getTime() < cutoff) return false;
-    if (currentProjectFilter !== 'all' && (t.project_name || 'unknown') !== currentProjectFilter) return false;
-    return true;
+    return new Date(fin).getTime() > cutoff;
   });
+
+  // Apply project filter
+  if (activeProjectFilter) {
+    recent = recent.filter(function(t) { return t.project_name === activeProjectFilter; });
+  }
 
   document.getElementById('completed-count').textContent = '(' + recent.length + ')';
 
-  const el = document.getElementById('completed-table');
-  if (!el) return;
+  const el = document.getElementById('completed-body');
   if (recent.length === 0) {
-    const label = currentTimeFilter === 'today' ? 'today' : currentTimeFilter === '7days' ? 'last 7 days' : 'history';
-    el.innerHTML = '<div class="empty">No completed tasks in ' + label + '</div>';
+    el.innerHTML = '<div class="empty">No completed tasks' + (activeProjectFilter ? ' for ' + esc(activeProjectFilter) : ' in last 24h') + '</div>';
     return;
   }
 
@@ -1247,6 +1185,199 @@ async function submitEvent() {
   }
 }
 
+// ── Charts ──────────────────────────────────
+
+const CHART_COLORS = {
+  blue: '#68a',
+  green: '#5a5',
+  red: '#a55',
+  yellow: '#aa6',
+  orange: '#a85',
+  purple: '#86a',
+  cyan: '#5aa',
+  pink: '#a68',
+};
+const PROJECT_COLORS = ['#68a', '#5a5', '#a85', '#86a', '#a55', '#5aa', '#aa6', '#a68'];
+
+function renderDailyChart(data) {
+  const ctx = document.getElementById('chart-daily');
+  if (!ctx) return;
+
+  // Fill in missing days
+  const labels = [];
+  const completed = [];
+  const merged = [];
+  const failed = [];
+  const now = new Date();
+  const dataMap = {};
+  for (let i = 0; i < data.length; i++) {
+    dataMap[data[i].day] = data[i];
+  }
+  for (let d = 6; d >= 0; d--) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - d);
+    const key = date.toISOString().slice(0, 10);
+    const dayLabel = date.toLocaleDateString([], { weekday: 'short' });
+    labels.push(dayLabel);
+    const entry = dataMap[key] || {};
+    completed.push(entry.completed || 0);
+    merged.push(entry.merged || 0);
+    failed.push(entry.failed || 0);
+  }
+
+  if (chartDaily) chartDaily.destroy();
+  chartDaily = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Completed', data: completed, backgroundColor: '#3a5a3a', borderColor: '#5a5', borderWidth: 1 },
+        { label: 'Merged', data: merged, backgroundColor: '#1a3a4a', borderColor: '#68a', borderWidth: 1 },
+        { label: 'Failed', data: failed, backgroundColor: '#3a1a1a', borderColor: '#a55', borderWidth: 1 },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels: { color: '#888', boxWidth: 12, font: { size: 10 } } } },
+      scales: {
+        x: { stacked: true, ticks: { color: '#888', font: { size: 10 } }, grid: { color: '#2a2a2a' } },
+        y: { stacked: true, beginAtZero: true, ticks: { color: '#888', font: { size: 10 }, stepSize: 1 }, grid: { color: '#2a2a2a' } },
+      },
+    },
+  });
+}
+
+function renderQueueChart(data) {
+  const ctx = document.getElementById('chart-queue');
+  if (!ctx) return;
+
+  // Sample every 2 hours for cleaner display
+  const labels = [];
+  const queued = [];
+  const running = [];
+  for (let i = 0; i < data.length; i += 2) {
+    labels.push(data[i].hour);
+    queued.push(data[i].queued);
+    running.push(data[i].running);
+  }
+
+  if (chartQueue) chartQueue.destroy();
+  chartQueue = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        { label: 'Queued', data: queued, borderColor: '#aa6', backgroundColor: 'rgba(170,170,100,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
+        { label: 'Running', data: running, borderColor: '#68a', backgroundColor: 'rgba(100,136,170,0.1)', fill: true, tension: 0.3, pointRadius: 0 },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: true, labels: { color: '#888', boxWidth: 12, font: { size: 10 } } } },
+      scales: {
+        x: { ticks: { color: '#888', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: '#2a2a2a' } },
+        y: { beginAtZero: true, ticks: { color: '#888', font: { size: 10 }, stepSize: 1 }, grid: { color: '#2a2a2a' } },
+      },
+    },
+  });
+}
+
+function renderProjectsChart(data) {
+  const ctx = document.getElementById('chart-projects');
+  if (!ctx || data.length === 0) return;
+
+  const labels = data.map(function(d) { return d.project_name; });
+  const counts = data.map(function(d) { return d.count; });
+  const colors = labels.map(function(_, i) { return PROJECT_COLORS[i % PROJECT_COLORS.length]; });
+  const bgColors = colors.map(function(c) { return c + '99'; }); // add alpha
+
+  if (chartProjects) chartProjects.destroy();
+  chartProjects = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: counts,
+        backgroundColor: bgColors,
+        borderColor: colors,
+        borderWidth: 1,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'right',
+          labels: { color: '#888', boxWidth: 10, font: { size: 10 }, padding: 6 },
+        },
+      },
+    },
+  });
+}
+
+async function refreshCharts() {
+  try {
+    const [daily, queue, projects] = await Promise.all([
+      api('/api/stats/daily?days=7'),
+      api('/api/stats/queue-depth?hours=24'),
+      api('/api/stats/projects'),
+    ]);
+    renderDailyChart(daily);
+    renderQueueChart(queue);
+    renderProjectsChart(projects);
+  } catch (e) {
+    console.error('Charts failed:', e);
+  }
+}
+
+// ── Sync status ─────────────────────────────
+
+async function refreshSyncStatus() {
+  const el = document.getElementById('sync-bar');
+  try {
+    const data = await api('/api/git-status/my-world');
+    if (data.error) {
+      el.innerHTML = '<span class="empty">' + esc(data.error) + '</span>';
+      return;
+    }
+
+    let html = '';
+
+    // Branch
+    if (data.branch) {
+      html += '<span class="sync-item">' + esc(data.branch) + '</span>';
+    }
+
+    // Last commit
+    if (data.last_commit) {
+      const c = data.last_commit;
+      html += '<span class="sync-item">Last: <span class="val">' + esc(c.hash) + '</span> ' + esc(c.message.substring(0, 40)) + '</span>';
+    }
+
+    // Sync state
+    if (data.has_changes) {
+      html += '<span class="sync-item"><span class="sync-dot dirty"></span> ' + data.uncommitted_count + ' uncommitted</span>';
+    } else if (data.synced === true) {
+      html += '<span class="sync-item"><span class="sync-dot synced"></span> Synced</span>';
+    } else if (data.synced === false) {
+      let syncText = 'Not synced';
+      if (data.ahead) syncText += ' (' + data.ahead + ' ahead';
+      if (data.behind) syncText += (data.ahead ? ', ' : '(') + data.behind + ' behind';
+      if (data.ahead || data.behind) syncText += ')';
+      html += '<span class="sync-item"><span class="sync-dot unsynced"></span> ' + syncText + '</span>';
+    } else {
+      html += '<span class="sync-item"><span class="sync-dot unknown"></span> No upstream</span>';
+    }
+
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<span class="empty">Sync check failed</span>';
+  }
+}
+
 function updateTimestamp() {
   const ago = Math.floor((Date.now() - lastFetch) / 1000);
   document.getElementById('updated').textContent = ago + 's ago';
@@ -1266,15 +1397,14 @@ async function refresh() {
     ]);
 
     lastFetch = Date.now();
+    allTasks = tasks;
     document.getElementById('live-dot').className = 'live-dot';
 
-    allTasks = tasks;
     renderSystem(sys);
     renderServices(svcs);
     renderEvents(events);
-    renderFilterBar('active-filters', tasks);
-    renderFilterBar('completed-filters', tasks);
     renderActiveTasks(tasks);
+    renderProjectFilters(tasks);
     renderCompleted(tasks);
     renderReview(review);
     renderBacklog(backlog);
@@ -1287,7 +1417,11 @@ async function refresh() {
 // ── Init ────────────────────────────────────
 
 refresh();
+refreshCharts();
+refreshSyncStatus();
 setInterval(refresh, REFRESH);
+setInterval(refreshCharts, 60000);  // charts every 60s (data doesn't change fast)
+setInterval(refreshSyncStatus, 30000);  // sync status every 30s
 setInterval(updateTimestamp, 1000);
 </script>
 </body>

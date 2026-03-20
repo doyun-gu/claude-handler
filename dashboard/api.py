@@ -1,11 +1,17 @@
-"""Fleet Dashboard API — Single-file FastAPI backend."""
+"""Fleet Dashboard API — Single-file FastAPI backend.
 
+Primary data store is SQLite (fleet.db). JSON files are kept as
+backup/sync format for the worker daemon and other scripts.
+"""
+
+import asyncio
 import glob
 import json
 import os
 import re
 import subprocess
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -18,7 +24,35 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-app = FastAPI(title="Fleet Dashboard API")
+from db import get_conn, run_migration, sync_from_json, get_all_tasks, \
+    get_task, update_task, get_all_backlog, get_all_events, add_event, \
+    get_daily_completions, get_project_breakdown, get_queue_depth_history, \
+    get_auto_heal_log, log_auto_heal
+
+
+async def _periodic_sync():
+    """Re-sync JSON → SQLite every 30s to catch daemon writes."""
+    while True:
+        await asyncio.sleep(30)
+        try:
+            sync_from_json()
+        except Exception:
+            pass
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Run migration on startup, periodic sync in background."""
+    results = run_migration()
+    total = sum(results.values())
+    if total > 0:
+        print(f"[db] Migrated {total} records to SQLite: {results}")
+    task = asyncio.create_task(_periodic_sync())
+    yield
+    task.cancel()
+
+
+app = FastAPI(title="Fleet Dashboard API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -301,17 +335,22 @@ async def get_system():
 
 
 @app.get("/api/tasks")
-async def get_tasks():
-    tasks = []
-    if not TASKS_DIR.exists():
+async def get_tasks_endpoint():
+    """Get all tasks from SQLite (falls back to JSON glob)."""
+    tasks = get_all_tasks()
+    if tasks:
         return tasks
+    # Fallback: read from JSON files directly
+    result = []
+    if not TASKS_DIR.exists():
+        return result
     for f in sorted(TASKS_DIR.glob("*.json"), reverse=True):
         try:
             data = json.loads(f.read_text())
-            tasks.append(data)
+            result.append(data)
         except (json.JSONDecodeError, OSError):
             pass
-    return tasks
+    return result
 
 
 @app.get("/api/review")
@@ -1064,7 +1103,11 @@ BACKLOG_FILE = FLEET_DIR / "backlog.json"
 
 @app.get("/api/backlog")
 async def get_backlog():
-    """Get backlog tasks."""
+    """Get backlog tasks from SQLite."""
+    tasks = get_all_backlog()
+    if tasks:
+        return tasks
+    # Fallback
     if not BACKLOG_FILE.exists():
         return []
     try:
@@ -1144,6 +1187,157 @@ async def create_event(event: EventCreate):
     events.append(new_event)
     EVENTS_FILE.write_text(json.dumps(events, indent=2) + "\n")
     return {"status": "ok", "message": f"Event '{event.title}' added"}
+
+
+# ── Stats Endpoints (for charts) ─────────────────────────
+
+
+@app.get("/api/stats/daily")
+async def get_stats_daily(days: int = Query(7)):
+    """Tasks completed per day for the last N days."""
+    return get_daily_completions(days)
+
+
+@app.get("/api/stats/projects")
+async def get_stats_projects():
+    """Task count breakdown by project."""
+    return get_project_breakdown()
+
+
+@app.get("/api/stats/queue-depth")
+async def get_stats_queue_depth(hours: int = Query(24)):
+    """Queue depth over time (hourly snapshots)."""
+    return get_queue_depth_history(hours)
+
+
+@app.get("/api/stats/auto-heal")
+async def get_stats_auto_heal(limit: int = Query(50)):
+    """Recent auto-heal log entries."""
+    return get_auto_heal_log(limit)
+
+
+# ── Git Status Endpoints ─────────────────────────────────
+
+
+@app.get("/api/git-status/{project_name}")
+async def get_git_status(project_name: str):
+    """Get git status for a project (last commit, uncommitted changes, etc.)."""
+    # Find project path
+    project_path = None
+    if PROJECTS_FILE.exists():
+        try:
+            data = json.loads(PROJECTS_FILE.read_text())
+            for proj in data.get("projects", []):
+                if proj.get("name", "").lower() == project_name.lower():
+                    project_path = proj.get("path", "")
+                    break
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if not project_path:
+        # Try common paths
+        common = Path.home() / "Developer" / project_name
+        if common.exists():
+            project_path = str(common)
+
+    if not project_path or not Path(project_path).exists():
+        return {"error": f"Project '{project_name}' not found"}
+
+    result = {"project": project_name, "path": project_path}
+
+    # Last commit
+    try:
+        r = subprocess.run(
+            ["git", "log", "-1", "--format=%H|%s|%ai|%an"],
+            capture_output=True, text=True, timeout=5, cwd=project_path,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            parts = r.stdout.strip().split("|", 3)
+            result["last_commit"] = {
+                "hash": parts[0][:8] if len(parts) > 0 else "",
+                "message": parts[1] if len(parts) > 1 else "",
+                "date": parts[2] if len(parts) > 2 else "",
+                "author": parts[3] if len(parts) > 3 else "",
+            }
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Current branch
+    try:
+        r = subprocess.run(
+            ["git", "branch", "--show-current"],
+            capture_output=True, text=True, timeout=3, cwd=project_path,
+        )
+        result["branch"] = r.stdout.strip() if r.returncode == 0 else ""
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Uncommitted changes
+    try:
+        r = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True, timeout=5, cwd=project_path,
+        )
+        if r.returncode == 0:
+            lines = [l for l in r.stdout.strip().split("\n") if l.strip()]
+            result["uncommitted_count"] = len(lines)
+            result["has_changes"] = len(lines) > 0
+        else:
+            result["uncommitted_count"] = 0
+            result["has_changes"] = False
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        result["uncommitted_count"] = 0
+        result["has_changes"] = False
+
+    # Check if pushed (compare local HEAD to remote tracking branch)
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            capture_output=True, text=True, timeout=3, cwd=project_path,
+        )
+        local_head = r.stdout.strip() if r.returncode == 0 else ""
+
+        r = subprocess.run(
+            ["git", "rev-parse", "@{u}"],
+            capture_output=True, text=True, timeout=3, cwd=project_path,
+        )
+        remote_head = r.stdout.strip() if r.returncode == 0 else ""
+
+        if local_head and remote_head:
+            result["synced"] = local_head == remote_head
+            if not result["synced"]:
+                # Count commits ahead/behind
+                r = subprocess.run(
+                    ["git", "rev-list", "--left-right", "--count", "HEAD...@{u}"],
+                    capture_output=True, text=True, timeout=3, cwd=project_path,
+                )
+                if r.returncode == 0:
+                    parts = r.stdout.strip().split()
+                    result["ahead"] = int(parts[0]) if len(parts) > 0 else 0
+                    result["behind"] = int(parts[1]) if len(parts) > 1 else 0
+        else:
+            result["synced"] = None  # No upstream configured
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError):
+        result["synced"] = None
+
+    return result
+
+
+# ── Database Admin ───────────────────────────────────────
+
+
+@app.post("/api/db/sync")
+async def trigger_db_sync():
+    """Force re-sync from JSON files to SQLite."""
+    results = sync_from_json()
+    return {"status": "ok", "synced": results}
+
+
+@app.post("/api/db/migrate")
+async def trigger_migration():
+    """Force full migration from all file sources to SQLite."""
+    results = run_migration()
+    return {"status": "ok", "migrated": results}
 
 
 # ── Static file serving ─────────────────────────────────
