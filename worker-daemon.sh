@@ -310,8 +310,9 @@ WORKER RULES:
             update_task_status "$task_file" "completed"
         fi
 
-        # Email notification
+        # Email notification + memory sync
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-complete "$task_id" 2>/dev/null &
+        "$HOME/Developer/claude-handler/memory-sync.sh" sync 2>/dev/null &
 
         # ── Auto-merge: try to merge safe PRs automatically ──
         local auto_merged=false
@@ -353,8 +354,9 @@ REVIEW_EOF
         fi
         update_task_status "$task_file" "failed" "error_message=$error_msg"
 
-        # Email notification
+        # Email notification + memory sync
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-failed "$task_id" 2>/dev/null &
+        "$HOME/Developer/claude-handler/memory-sync.sh" sync 2>/dev/null &
 
         cat > "$REVIEW_DIR/${task_id}-failed.md" << REVIEW_EOF
 ---

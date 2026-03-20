@@ -44,6 +44,12 @@ echo "[$(timestamp)] Fleet startup beginning..." >> "$LOG"
 
 sleep 5  # Wait for network/disk
 
+# ── Memory sync ─────────────────────────────────────
+if [[ -f "$HANDLER_DIR/memory-sync.sh" ]]; then
+    "$HANDLER_DIR/memory-sync.sh" sync 2>/dev/null &
+    echo "[$(timestamp)] Memory sync started (background)" >> "$LOG"
+fi
+
 # ── Core fleet services ─────────────────────────────
 
 # Fleet Dashboard (:3003)
