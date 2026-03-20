@@ -167,12 +167,15 @@ async def get_system():
     cpu_percent = psutil.cpu_percent(interval=0.5)
     cpu_count = psutil.cpu_count()
     mem = psutil.virtual_memory()
+    disk = psutil.disk_usage("/")
     return {
         "cpu_percent": cpu_percent,
         "cpu_count": cpu_count,
         "ram_used_gb": round(mem.used / (1024**3), 1),
         "ram_total_gb": round(mem.total / (1024**3), 1),
         "ram_percent": mem.percent,
+        "disk_free_gb": round(disk.free / (1024**3)),
+        "disk_total_gb": round(disk.total / (1024**3)),
         "uptime": get_uptime(),
         "timestamp": datetime.now().isoformat(),
     }
@@ -306,11 +309,16 @@ async def get_services():
             code = resp.getcode()
             status = "up"
         except Exception:
-            # Check if port is listening
-            for conn in psutil.net_connections(kind="inet"):
-                if conn.laddr.port == svc["port"] and conn.status == "LISTEN":
+            # Check if port is listening via lsof (psutil.net_connections needs root)
+            try:
+                result = subprocess.run(
+                    ["lsof", "-i", f":{svc['port']}", "-sTCP:LISTEN", "-t"],
+                    capture_output=True, text=True, timeout=3,
+                )
+                if result.returncode == 0 and result.stdout.strip():
                     status = "up"
-                    break
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
         services.append({
             "name": svc["name"],
             "port": svc["port"],
@@ -684,29 +692,187 @@ class ActionRequest(BaseModel):
     description: str = ""
 
 
+def _find_task_manifest(task_slug: str) -> tuple[Optional[Path], Optional[dict]]:
+    """Find task manifest by slug (exact or partial match)."""
+    if not TASKS_DIR.exists():
+        return None, None
+    # Exact match first
+    exact = TASKS_DIR / f"{task_slug}.json"
+    if exact.exists():
+        try:
+            return exact, json.loads(exact.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Partial match
+    for f in TASKS_DIR.glob("*.json"):
+        if task_slug in f.stem:
+            try:
+                return f, json.loads(f.read_text())
+            except (json.JSONDecodeError, OSError):
+                continue
+    return None, None
+
+
+def _archive_review_item(task_slug: str) -> Optional[str]:
+    """Move review queue item to archived/. Returns archived filename."""
+    if not REVIEW_DIR.exists():
+        return None
+    archive_dir = REVIEW_DIR / "archived"
+    archive_dir.mkdir(exist_ok=True)
+    for f in REVIEW_DIR.glob("*.md"):
+        if task_slug in f.name:
+            f.rename(archive_dir / f.name)
+            return f.name
+    return None
+
+
+def _find_repo_for_project(project_path: str) -> Optional[str]:
+    """Find GitHub repo (owner/name) for a project path."""
+    if not PROJECTS_FILE.exists():
+        return None
+    try:
+        data = json.loads(PROJECTS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+    for proj in data.get("projects", []):
+        if proj.get("path") == project_path:
+            repo = proj.get("repo", "")
+            # git@github.com:owner/name.git -> owner/name
+            if repo.startswith("git@github.com:"):
+                return repo.replace("git@github.com:", "").replace(".git", "")
+            if "github.com/" in repo:
+                parts = repo.rstrip("/").replace(".git", "").split("github.com/")
+                return parts[-1] if len(parts) > 1 else None
+    return None
+
+
 @app.post("/api/action")
 async def submit_action(action: ActionRequest):
     """Submit an action (merge, skip, fix, queue)."""
     REPLY_ACTIONS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d-%H%M%S")
-    action_file = REPLY_ACTIONS_DIR / f"{ts}-{action.type}-{action.task_slug}.json"
-    action_data = {
-        "type": action.type,
-        "task_slug": action.task_slug,
-        "description": action.description,
-        "created_at": datetime.now().isoformat(),
-    }
 
-    if action.type == "skip":
+    if action.type == "merge":
+        # Actually merge the PR via gh CLI
+        task_file, task_data = _find_task_manifest(action.task_slug)
+        if not task_data:
+            return {"status": "error", "message": f"Task manifest not found for '{action.task_slug}'"}
+
+        branch = task_data.get("branch", "")
+        project_path = task_data.get("project_path", "")
+        pr_url = task_data.get("pr_url", "")
+
+        if not branch:
+            return {"status": "error", "message": "No branch found in task manifest"}
+
+        # Find the repo
+        repo = _find_repo_for_project(project_path)
+        if not repo:
+            return {"status": "error", "message": f"Could not find GitHub repo for project at {project_path}"}
+
+        # Find PR number from branch
+        try:
+            result = subprocess.run(
+                ["gh", "pr", "list", "--repo", repo, "--head", branch,
+                 "--json", "number", "--jq", ".[0].number"],
+                capture_output=True, text=True, timeout=15,
+            )
+            pr_number = result.stdout.strip()
+            if not pr_number:
+                return {"status": "error", "message": f"No open PR found for branch '{branch}' in {repo}"}
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            return {"status": "error", "message": f"Failed to find PR: {e}"}
+
+        # Merge the PR
+        try:
+            result = subprocess.run(
+                ["gh", "pr", "merge", pr_number, "--repo", repo,
+                 "--squash", "--delete-branch"],
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode != 0:
+                err = result.stderr.strip() or result.stdout.strip()
+                return {"status": "error", "message": f"Merge failed: {err}"}
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            return {"status": "error", "message": f"Merge command failed: {e}"}
+
+        # Update task manifest status
+        if task_file and task_data:
+            task_data["status"] = "merged"
+            task_data["merged_at"] = datetime.now().isoformat()
+            task_file.write_text(json.dumps(task_data, indent=2))
+
+        # Archive the review item
+        archived = _archive_review_item(action.task_slug)
+
+        # Log the action
+        action_file = REPLY_ACTIONS_DIR / f"{ts}-merge-{action.task_slug}.json"
+        action_file.write_text(json.dumps({
+            "type": "merge",
+            "task_slug": action.task_slug,
+            "pr_number": pr_number,
+            "repo": repo,
+            "archived": archived,
+            "created_at": datetime.now().isoformat(),
+        }, indent=2))
+
+        return {"status": "ok", "message": f"PR #{pr_number} merged in {repo}", "pr_number": pr_number}
+
+    elif action.type == "skip":
         # Archive the review queue item
-        for f in REVIEW_DIR.glob(f"*{action.task_slug}*"):
-            archive_dir = REVIEW_DIR / "archived"
-            archive_dir.mkdir(exist_ok=True)
-            f.rename(archive_dir / f.name)
-            action_data["archived"] = f.name
+        archived = _archive_review_item(action.task_slug)
+        if not archived:
+            return {"status": "ok", "message": "No review item found (may already be archived)"}
 
-    action_file.write_text(json.dumps(action_data, indent=2))
-    return {"status": "ok", "file": str(action_file)}
+        action_file = REPLY_ACTIONS_DIR / f"{ts}-skip-{action.task_slug}.json"
+        action_file.write_text(json.dumps({
+            "type": "skip",
+            "task_slug": action.task_slug,
+            "archived": archived,
+            "created_at": datetime.now().isoformat(),
+        }, indent=2))
+        return {"status": "ok", "message": f"Dismissed: {archived}"}
+
+    elif action.type == "fix":
+        # Dispatch a fix task (creates a reply-action for the daemon)
+        action_file = REPLY_ACTIONS_DIR / f"{ts}-fix-{action.task_slug}.json"
+        action_file.write_text(json.dumps({
+            "type": "fix",
+            "task_slug": action.task_slug,
+            "description": action.description,
+            "created_at": datetime.now().isoformat(),
+        }, indent=2))
+        return {"status": "ok", "message": f"Fix task queued for {action.task_slug}"}
+
+    elif action.type == "queue":
+        action_file = REPLY_ACTIONS_DIR / f"{ts}-queue-{action.task_slug}.json"
+        action_file.write_text(json.dumps({
+            "type": "queue",
+            "task_slug": action.task_slug,
+            "description": action.description,
+            "created_at": datetime.now().isoformat(),
+        }, indent=2))
+        return {"status": "ok", "message": f"Task queued: {action.task_slug}"}
+
+    return {"status": "error", "message": f"Unknown action type: {action.type}"}
+
+
+# ── Backlog Endpoint ────────────────────────────────────
+
+
+BACKLOG_FILE = FLEET_DIR / "backlog.json"
+
+
+@app.get("/api/backlog")
+async def get_backlog():
+    """Get backlog tasks."""
+    if not BACKLOG_FILE.exists():
+        return []
+    try:
+        data = json.loads(BACKLOG_FILE.read_text())
+        return data.get("tasks", [])
+    except (json.JSONDecodeError, OSError):
+        return []
 
 
 # ── Static file serving ─────────────────────────────────

@@ -2,1336 +2,608 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>Fleet Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fleet Monitor</title>
 <style>
-:root {
-  --bg: #0d1117;
-  --bg-card: #161b22;
-  --bg-card-hover: #1c2333;
-  --bg-input: #0d1117;
-  --border: #30363d;
-  --text: #e6edf3;
-  --text-dim: #8b949e;
-  --text-dimmer: #6e7681;
-  --accent: #58a6ff;
-  --accent-dim: #1f6feb33;
-  --green: #3fb950;
-  --green-dim: #23863633;
-  --red: #f85149;
-  --red-dim: #f8514933;
-  --yellow: #d29922;
-  --yellow-dim: #d2992233;
-  --orange: #db6d28;
-  --purple: #bc8cff;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow: 0 1px 3px rgba(0,0,0,.3);
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif;
-  --mono: "SF Mono", "Fira Code", "Cascadia Code", monospace;
-}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --bg: #1a1a1a;
+  --bg-card: #222;
+  --bg-hover: #2a2a2a;
+  --border: #333;
+  --text: #ccc;
+  --text-dim: #888;
+  --text-bright: #eee;
+  --green: #5a5;
+  --red: #a55;
+  --blue: #68a;
+  --yellow: #aa6;
+  --orange: #a85;
+}
 
 body {
-  font-family: var(--font);
   background: var(--bg);
   color: var(--text);
+  font-family: "SF Mono", "Fira Code", "Cascadia Code", "JetBrains Mono", "Menlo", monospace;
+  font-size: 13px;
   line-height: 1.5;
-  min-height: 100vh;
-  -webkit-font-smoothing: antialiased;
+  padding: 0;
 }
 
-/* ── Layout ────────────────────────────── */
-.app { max-width: 1200px; margin: 0 auto; padding: 16px; padding-bottom: 80px; }
-
-header {
+/* ── Header ─────────────────────────────── */
+.header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 0;
-  margin-bottom: 8px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--border);
+  background: #161616;
 }
-header h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.3px; }
-header .meta { font-size: 13px; color: var(--text-dim); }
-header .meta .uptime { color: var(--green); }
-
-/* ── Tabs ──────────────────────────────── */
-.tabs {
-  display: flex;
-  gap: 2px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 16px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-}
-.tab {
-  padding: 10px 16px;
+.header h1 {
   font-size: 14px;
-  color: var(--text-dim);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  white-space: nowrap;
-  transition: color .15s, border-color .15s;
-  position: relative;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
+  font-weight: 600;
+  color: var(--text-bright);
+  letter-spacing: 1px;
+  text-transform: uppercase;
 }
-.tab:hover { color: var(--text); }
-.tab.active { color: var(--text); border-bottom-color: var(--accent); }
-.tab .badge {
-  position: absolute;
-  top: 6px;
-  right: 4px;
-  background: var(--red);
-  color: #fff;
-  font-size: 10px;
-  font-weight: 700;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 8px;
+.header-right {
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-}
-.tab .badge:empty { display: none; }
-.tab-content { display: none; }
-.tab-content.active { display: block; }
-
-/* ── Cards ─────────────────────────────── */
-.card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 12px;
-  transition: background .15s;
-}
-.card:hover { background: var(--bg-card-hover); }
-.card h3 { font-size: 15px; font-weight: 600; margin-bottom: 8px; }
-.card .meta-row { font-size: 13px; color: var(--text-dim); margin-bottom: 4px; }
-
-/* ── Metric Grid ───────────────────────── */
-.metrics {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: 12px;
-  margin-bottom: 16px;
-}
-.metric {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  text-align: center;
-}
-.metric .value { font-size: 28px; font-weight: 700; letter-spacing: -1px; }
-.metric .label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 4px; }
-.metric.green .value { color: var(--green); }
-.metric.red .value { color: var(--red); }
-.metric.yellow .value { color: var(--yellow); }
-.metric.accent .value { color: var(--accent); }
-
-/* ── Action Required Banner ────────────── */
-.action-banner {
-  border: 1px solid var(--red);
-  border-left: 4px solid var(--red);
-  background: var(--red-dim);
-  border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 16px;
-}
-.action-banner h2 {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--red);
-  margin-bottom: 10px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.action-banner .action-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 0;
-  border-top: 1px solid rgba(248,81,73,.2);
-  gap: 8px;
-}
-.action-banner .action-item:first-of-type { border-top: none; }
-.action-banner .action-item .info { flex: 1; min-width: 0; }
-.action-banner .action-item .name { font-weight: 600; font-size: 14px; }
-.action-banner .action-item .reason { font-size: 12px; color: var(--text-dim); }
-
-.all-clear {
-  background: var(--green-dim);
-  border: 1px solid var(--green);
-  border-radius: var(--radius);
-  padding: 16px;
-  margin-bottom: 16px;
-  text-align: center;
-  font-weight: 600;
-  color: var(--green);
-}
-
-/* ── Review Sections ───────────────────── */
-.review-section {
-  margin-bottom: 16px;
-}
-.review-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  cursor: pointer;
-  user-select: none;
-  -webkit-tap-highlight-color: transparent;
-}
-.review-section-header h3 {
-  font-size: 14px;
-  font-weight: 600;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.review-section-header .count {
-  font-size: 12px;
   color: var(--text-dim);
-  background: var(--bg);
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-.review-section-header .chevron {
-  color: var(--text-dim);
-  transition: transform .2s;
   font-size: 12px;
 }
-.review-section-header.expanded .chevron { transform: rotate(90deg); }
-.review-section-body {
-  border: 1px solid var(--border);
-  border-top: none;
-  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-  overflow: hidden;
-}
-.review-section.action-required .review-section-header {
-  border-left: 3px solid var(--red);
-}
-.review-section.low-priority .review-section-header {
-  border-left: 3px solid var(--yellow);
-}
-.review-section.dismissed .review-section-header {
-  border-left: 3px solid var(--text-dimmer);
-}
-
-/* ── Review Item (compact row) ─────────── */
-.review-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--border);
-  transition: background .15s;
-  font-size: 13px;
-}
-.review-item:last-child { border-bottom: none; }
-.review-item:hover { background: var(--bg-card-hover); }
-.review-item .ri-slug {
-  font-weight: 600;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.review-item .ri-project {
-  font-size: 11px;
-  color: var(--accent);
-  background: var(--accent-dim);
-  padding: 1px 8px;
-  border-radius: 10px;
-  white-space: nowrap;
-}
-.review-item .ri-time {
-  font-size: 11px;
-  color: var(--text-dimmer);
-  white-space: nowrap;
-}
-.review-item .ri-actions {
-  display: flex;
-  gap: 4px;
-  flex-shrink: 0;
-}
-
-/* ── Buttons ───────────────────────────── */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  font-size: 12px;
-  font-weight: 500;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-card);
-  color: var(--text);
-  cursor: pointer;
-  transition: background .15s, border-color .15s;
-  white-space: nowrap;
-  font-family: var(--font);
-  -webkit-tap-highlight-color: transparent;
-}
-.btn:hover { background: var(--bg-card-hover); border-color: var(--text-dim); }
-.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
-.btn.primary:hover { background: #1f6feb; }
-.btn.danger { color: var(--red); border-color: var(--red); }
-.btn.danger:hover { background: var(--red-dim); }
-.btn.success { color: var(--green); border-color: var(--green); }
-.btn.success:hover { background: var(--green-dim); }
-.btn.batch { padding: 4px 10px; font-size: 11px; }
-.btn:disabled { opacity: .4; cursor: not-allowed; }
-
-/* ── Services Row ──────────────────────── */
-.services-row {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-}
-.svc-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  font-size: 13px;
-}
-.svc-dot {
+.live-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
 }
-.svc-dot.up { background: var(--green); box-shadow: 0 0 6px var(--green); }
-.svc-dot.down { background: var(--red); }
+.live-dot.dead { background: var(--red); }
 
-/* ── Tasks Table ───────────────────────── */
-.task-list .task-row {
-  display: grid;
-  grid-template-columns: 1fr 100px 90px 120px;
-  align-items: center;
-  padding: 10px 14px;
+/* ── Section ────────────────────────────── */
+.section {
   border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  padding: 10px 20px;
 }
-.task-row:hover { background: var(--bg-card-hover); }
-.task-row .task-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.task-row .task-project { color: var(--accent); font-size: 12px; }
-.status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 10px;
+.section-label {
   font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-}
-.status-badge.completed { background: var(--green-dim); color: var(--green); }
-.status-badge.running { background: var(--accent-dim); color: var(--accent); }
-.status-badge.queued { background: var(--yellow-dim); color: var(--yellow); }
-.status-badge.failed { background: var(--red-dim); color: var(--red); }
-.status-badge.blocked { background: var(--red-dim); color: var(--red); }
-
-/* ── Notifications Tab ─────────────────── */
-.notif-status-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-.notif-status-item {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 14px;
-}
-.notif-status-item .ns-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-.notif-status-item .ns-value { font-size: 16px; font-weight: 600; }
-.notif-status-item .ns-value.ok { color: var(--green); }
-.notif-status-item .ns-value.bad { color: var(--red); }
-
-.notif-history .nh-row {
-  display: grid;
-  grid-template-columns: 140px 1fr 120px 80px;
-  align-items: center;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-.notif-history .nh-row:hover { background: var(--bg-card-hover); }
-.nh-time { color: var(--text-dim); font-family: var(--mono); font-size: 12px; }
-.nh-subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.nh-task { color: var(--accent); font-size: 12px; }
-.nh-reply { font-size: 11px; }
-.nh-reply.yes { color: var(--green); }
-.nh-reply.no { color: var(--text-dimmer); }
-
-/* ── Preferences Toggles ──────────────── */
-.pref-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
-}
-.pref-row:last-child { border-bottom: none; }
-.pref-label { font-size: 14px; }
-.toggle {
-  position: relative;
-  width: 44px;
-  height: 24px;
-  cursor: pointer;
-}
-.toggle input { opacity: 0; width: 0; height: 0; }
-.toggle .slider {
-  position: absolute;
-  inset: 0;
-  background: var(--border);
-  border-radius: 12px;
-  transition: background .2s;
-}
-.toggle .slider::before {
-  content: "";
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  left: 3px;
-  top: 3px;
-  background: #fff;
-  border-radius: 50%;
-  transition: transform .2s;
-}
-.toggle input:checked + .slider { background: var(--green); }
-.toggle input:checked + .slider::before { transform: translateX(20px); }
-
-/* ── Quick Actions Panel ───────────────── */
-.quick-actions {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  margin-top: 16px;
-}
-.quick-actions input {
-  padding: 8px 12px;
-  background: var(--bg-input);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text);
-  font-size: 14px;
-  font-family: var(--font);
-}
-.quick-actions input::placeholder { color: var(--text-dimmer); }
-
-/* ── Projects Grid ─────────────────────── */
-.projects-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-}
-.project-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  transition: background .15s;
-}
-.project-card:hover { background: var(--bg-card-hover); }
-.project-card .pc-name { font-weight: 600; font-size: 16px; margin-bottom: 4px; }
-.project-card .pc-name .primary-badge {
-  background: var(--accent-dim);
-  color: var(--accent);
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 8px;
-  margin-left: 6px;
-  font-weight: 700;
-  text-transform: uppercase;
-}
-.project-card .pc-notes { font-size: 13px; color: var(--text-dim); margin-bottom: 8px; }
-.project-card .pc-path { font-size: 11px; color: var(--text-dimmer); font-family: var(--mono); }
-
-/* ── Log Viewer ────────────────────────── */
-.log-viewer {
-  background: #010409;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  font-family: var(--mono);
-  font-size: 12px;
-  line-height: 1.7;
-  max-height: 500px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-all;
   color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
 }
-
-/* ── Section Header ────────────────────── */
 .section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  cursor: pointer;
+  user-select: none;
 }
-.section-header h2 { font-size: 16px; font-weight: 600; }
-
-/* ── Empty State ───────────────────────── */
-.empty {
-  text-align: center;
-  color: var(--text-dim);
-  padding: 40px 16px;
-  font-size: 14px;
-}
-
-/* ── Responsive ────────────────────────── */
-@media (max-width: 768px) {
-  .app { padding: 10px; }
-  header h1 { font-size: 17px; }
-  .metrics { grid-template-columns: repeat(2, 1fr); }
-  .task-list .task-row { grid-template-columns: 1fr 80px; }
-  .task-row .task-project, .task-row > :nth-child(4) { display: none; }
-  .notif-history .nh-row { grid-template-columns: 100px 1fr 60px; }
-  .nh-task { display: none; }
-  .review-item .ri-actions { flex-direction: column; }
-  .action-banner .action-item { flex-direction: column; align-items: flex-start; }
-}
-
-@media (max-width: 480px) {
-  .metrics { grid-template-columns: 1fr 1fr; gap: 8px; }
-  .metric .value { font-size: 22px; }
-  .tabs { gap: 0; }
-  .tab { padding: 8px 10px; font-size: 13px; }
-}
-
-/* ── Fade-in animation ─────────────────── */
-@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-.fade-in { animation: fadeIn .2s ease-out; }
-
-/* ── Collapsible body ──────────────────── */
-.review-section-body.collapsed { display: none; }
-
-/* ── Compact Table ────────────────────── */
-.compact-table-header {
-  display: grid;
-  grid-template-columns: 1fr 120px 120px 110px;
-  padding: 6px 14px;
+.section-header .toggle {
   font-size: 11px;
-  font-weight: 600;
   color: var(--text-dim);
+}
+
+/* ── System bar ─────────────────────────── */
+.sys-bar {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.sys-bar .val { color: var(--text-bright); }
+
+/* ── Services bar ───────────────────────── */
+.svc-bar {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.svc-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+.svc-dot.up { background: var(--green); }
+.svc-dot.down { background: var(--red); }
+
+/* ── Tables ─────────────────────────────── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border);
-  background: var(--bg);
 }
-.compact-table-row {
-  display: grid;
-  grid-template-columns: 1fr 120px 120px 110px;
-  align-items: center;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-  cursor: pointer;
-  transition: background .15s;
+td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #2a2a2a;
+  vertical-align: top;
 }
-.compact-table-row:hover { background: var(--bg-card-hover); }
-.compact-table-row.expanded { background: var(--bg-card-hover); border-bottom-color: transparent; }
-.compact-table-details {
-  padding: 12px 14px 12px 28px;
-  border-bottom: 1px solid var(--border);
-  font-size: 12px;
-  color: var(--text-dim);
-  background: var(--bg);
-  line-height: 1.6;
-  display: none;
-}
-.compact-table-details.visible { display: block; }
+tr:hover td { background: var(--bg-hover); }
+tr.running td { border-left: 3px solid var(--blue); }
+tr.queued td { color: var(--text-dim); }
 
-/* ── Spinner ──────────────────────────── */
-@keyframes spin { to { transform: rotate(360deg); } }
-.spinner {
+/* ── Status badges ──────────────────────── */
+.badge {
   display: inline-block;
-  width: 12px;
-  height: 12px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .8s linear infinite;
-  vertical-align: middle;
-  margin-right: 4px;
-}
-
-/* ── Processing Section ──────────────── */
-.review-section.processing .review-section-header {
-  border-left: 3px solid var(--accent);
-}
-
-/* ── View Toggle ─────────────────────── */
-.view-toggle {
-  display: inline-flex;
-  gap: 2px;
-  background: var(--bg);
-  border-radius: 6px;
-  padding: 2px;
-}
-.view-toggle button {
-  padding: 3px 8px;
+  padding: 1px 6px;
+  border-radius: 3px;
   font-size: 11px;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  cursor: pointer;
-  border-radius: 4px;
-  font-family: var(--font);
+  font-weight: 500;
 }
-.view-toggle button.active {
+.badge-running { background: #1a3a4a; color: #7bc; }
+.badge-completed { background: #1a3a1a; color: #7b7; }
+.badge-failed { background: #3a1a1a; color: #b77; }
+.badge-blocked { background: #3a2a1a; color: #ba7; }
+.badge-queued { background: #2a2a2a; color: #888; }
+.badge-merged { background: #1a2a3a; color: #79b; }
+.badge-cancelled { background: #2a2a2a; color: #666; }
+.badge-decision_needed { background: #2a2a1a; color: #aa8; }
+
+/* ── Buttons ────────────────────────────── */
+.btn {
+  display: inline-block;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
   background: var(--bg-card);
   color: var(--text);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
 }
+.btn:hover { background: var(--bg-hover); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-merge { border-color: #3a5a3a; color: #7b7; }
+.btn-merge:hover { background: #1a3a1a; }
+.btn-dismiss { border-color: #3a3a3a; color: #999; }
+.btn-dismiss:hover { background: #2a2a2a; }
+.btn-fix { border-color: #3a3a1a; color: #ba7; }
+.btn-fix:hover { background: #2a2a1a; }
 
-/* ── Responsive: compact table ────────── */
+/* ── Toast ──────────────────────────────── */
+.toast-container {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 12px;
+  animation: fadeIn 0.2s;
+  max-width: 360px;
+}
+.toast-ok { background: #1a3a1a; color: #7b7; border: 1px solid #3a5a3a; }
+.toast-err { background: #3a1a1a; color: #b77; border: 1px solid #5a3a3a; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
+
+/* ── Collapsible ────────────────────────── */
+.collapsed .section-body { display: none; }
+
+/* ── Empty state ────────────────────────── */
+.empty { color: var(--text-dim); font-style: italic; padding: 8px 0; }
+
+/* ── Responsive ─────────────────────────── */
 @media (max-width: 768px) {
-  .compact-table-header,
-  .compact-table-row {
-    grid-template-columns: 1fr 90px 80px;
-  }
-  .compact-table-header > :nth-child(2),
-  .compact-table-row > :nth-child(2) { display: none; }
+  .sys-bar, .svc-bar { gap: 12px; }
+  table { font-size: 11px; }
+  td, th { padding: 4px 4px; }
+  .section { padding: 8px 12px; }
+  .header { padding: 10px 12px; }
+  .header h1 { font-size: 12px; }
+  .hide-mobile { display: none; }
 }
 </style>
 </head>
 <body>
-<div class="app">
-  <header>
-    <h1>Fleet Dashboard</h1>
-    <div class="meta">
-      <span id="uptime-display"></span>
-      &middot; <span id="timestamp-display"></span>
-    </div>
-  </header>
 
-  <div class="tabs">
-    <div class="tab active" data-tab="overview">Overview</div>
-    <div class="tab" data-tab="tasks">Tasks</div>
-    <div class="tab" data-tab="review">Review Queue <span class="badge" id="review-badge"></span></div>
-    <div class="tab" data-tab="notifications">Notifications</div>
-    <div class="tab" data-tab="projects">Projects</div>
-    <div class="tab" data-tab="logs">Logs</div>
-  </div>
-
-  <!-- ═══ OVERVIEW TAB ═══ -->
-  <div class="tab-content active" id="tab-overview">
-    <div id="action-required-banner"></div>
-    <div class="metrics" id="system-metrics"></div>
-    <div class="section-header"><h2>Services</h2></div>
-    <div class="services-row" id="services-row"></div>
-    <div class="section-header"><h2>Recent Tasks</h2></div>
-    <div class="card">
-      <div class="task-list" id="recent-tasks"></div>
-    </div>
-  </div>
-
-  <!-- ═══ TASKS TAB ═══ -->
-  <div class="tab-content" id="tab-tasks">
-    <div class="section-header"><h2>All Tasks</h2></div>
-    <div class="card">
-      <div class="task-list" id="all-tasks"></div>
-    </div>
-  </div>
-
-  <!-- ═══ REVIEW QUEUE TAB ═══ -->
-  <div class="tab-content" id="tab-review">
-    <div class="section-header"><h2>Review Queue</h2></div>
-    <div id="review-sections"></div>
-  </div>
-
-  <!-- ═══ NOTIFICATIONS TAB ═══ -->
-  <div class="tab-content" id="tab-notifications">
-    <div class="section-header">
-      <h2>Email Notifications</h2>
-      <button class="btn primary" id="btn-test-email">Send Test Email</button>
-    </div>
-    <div class="notif-status-grid" id="notif-status"></div>
-
-    <div class="section-header" style="margin-top:16px"><h2>Quick Actions</h2></div>
-    <div class="card">
-      <div class="quick-actions">
-        <input type="text" id="quick-action-input" placeholder="Type a command: MERGE task-slug, FIX description, QUEUE prompt...">
-        <button class="btn primary" id="btn-quick-action">Send</button>
-      </div>
-      <div style="font-size:12px;color:var(--text-dimmer);margin-top:8px;padding:0 2px;">
-        Commands: <code>MERGE &lt;slug&gt;</code> &middot; <code>FIX &lt;description&gt;</code> &middot; <code>SKIP &lt;slug&gt;</code> &middot; <code>QUEUE &lt;prompt&gt;</code>
-      </div>
-    </div>
-
-    <div class="section-header" style="margin-top:16px"><h2>Notification Preferences</h2></div>
-    <div class="card" id="notif-prefs"></div>
-
-    <div class="section-header" style="margin-top:16px"><h2>Recent Notifications</h2></div>
-    <div class="card">
-      <div class="notif-history" id="notif-history"></div>
-    </div>
-  </div>
-
-  <!-- ═══ PROJECTS TAB ═══ -->
-  <div class="tab-content" id="tab-projects">
-    <div class="section-header"><h2>Registered Projects</h2></div>
-    <div class="projects-grid" id="projects-grid"></div>
-  </div>
-
-  <!-- ═══ LOGS TAB ═══ -->
-  <div class="tab-content" id="tab-logs">
-    <div class="section-header"><h2>Logs</h2></div>
-    <div id="logs-list"></div>
-    <div id="log-viewer-container" style="display:none;margin-top:16px;">
-      <div class="section-header">
-        <h2 id="log-viewer-title">Log</h2>
-        <button class="btn" onclick="document.getElementById('log-viewer-container').style.display='none'">Close</button>
-      </div>
-      <div class="log-viewer" id="log-viewer-content"></div>
-    </div>
+<!-- Header -->
+<div class="header">
+  <h1>Fleet Monitor</h1>
+  <div class="header-right">
+    <span id="updated">--</span>
+    <span class="live-dot" id="live-dot"></span>
   </div>
 </div>
 
+<!-- System -->
+<div class="section" id="sys-section">
+  <div class="sys-bar" id="sys-bar">
+    <span>CPU: <span class="val" id="sys-cpu">--</span></span>
+    <span>RAM: <span class="val" id="sys-ram">--</span></span>
+    <span>Disk: <span class="val" id="sys-disk">--</span></span>
+    <span>Uptime: <span class="val" id="sys-uptime">--</span></span>
+  </div>
+</div>
+
+<!-- Services -->
+<div class="section" id="svc-section">
+  <div class="svc-bar" id="svc-bar">--</div>
+</div>
+
+<!-- Active Tasks -->
+<div class="section" id="active-section">
+  <div class="section-label">Active Tasks</div>
+  <div id="active-body"></div>
+</div>
+
+<!-- Completed (collapsible) -->
+<div class="section" id="completed-section">
+  <div class="section-header" onclick="toggleSection('completed-section')">
+    <span class="section-label" style="margin-bottom:0">Completed <span id="completed-count"></span></span>
+    <span class="toggle" id="completed-toggle">[hide]</span>
+  </div>
+  <div class="section-body" id="completed-body" style="margin-top:6px"></div>
+</div>
+
+<!-- Review Queue -->
+<div class="section" id="review-section" style="display:none">
+  <div class="section-label">Review Queue</div>
+  <div id="review-body"></div>
+</div>
+
+<!-- Backlog -->
+<div class="section" id="backlog-section">
+  <div class="section-header" onclick="toggleSection('backlog-section')">
+    <span class="section-label" style="margin-bottom:0">Backlog <span id="backlog-count"></span></span>
+    <span class="toggle" id="backlog-toggle">[hide]</span>
+  </div>
+  <div class="section-body" id="backlog-body" style="margin-top:6px"></div>
+</div>
+
+<div class="toast-container" id="toasts"></div>
+
 <script>
-// ── State ──────────────────────────────
-let reviewData = [];
-let systemData = {};
-let autoRefreshTimer = null;
-const REFRESH_INTERVAL = 15000;
-const expandedPanels = new Set();
-const sectionViewMode = {}; // sectionId -> 'cards' | 'table'
+const REFRESH = 10000;
+let lastFetch = 0;
 
-// ── Tab Navigation ─────────────────────
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-  });
-});
+// ── Helpers ─────────────────────────────────
 
-// ── API Helpers ────────────────────────
+function esc(s) {
+  if (!s) return '';
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function timeAgo(iso) {
+  if (!iso) return '--';
+  const d = new Date(iso);
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+
+function duration(start, end) {
+  if (!start) return '--';
+  const s = new Date(start);
+  const e = end ? new Date(end) : new Date();
+  const sec = Math.floor((e - s) / 1000);
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.floor(sec / 60) + 'm';
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  return h + 'h ' + m + 'm';
+}
+
+function badge(status) {
+  const cls = 'badge-' + (status || 'queued');
+  return '<span class="badge ' + cls + '">' + esc(status || 'unknown') + '</span>';
+}
+
+function shortBranch(b) {
+  if (!b) return '--';
+  return b.length > 30 ? b.slice(0, 28) + '..' : b;
+}
+
+function shortSlug(id) {
+  if (!id) return '--';
+  const m = id.match(/^\d{8}-\d{6}-(.+)$/);
+  return m ? m[1] : id;
+}
+
+function toast(msg, ok) {
+  const el = document.createElement('div');
+  el.className = 'toast ' + (ok ? 'toast-ok' : 'toast-err');
+  el.textContent = msg;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 4000);
+}
+
+function toggleSection(id) {
+  const sec = document.getElementById(id);
+  sec.classList.toggle('collapsed');
+  const toggle = sec.querySelector('.toggle');
+  if (toggle) toggle.textContent = sec.classList.contains('collapsed') ? '[show]' : '[hide]';
+}
+
 async function api(path) {
   const r = await fetch(path);
+  if (!r.ok) throw new Error(r.statusText);
   return r.json();
 }
+
 async function apiPost(path, body) {
   const r = await fetch(path, {
     method: 'POST',
-    headers: {'Content-Type': 'application/json'},
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   return r.json();
 }
 
-// ── Format Helpers ─────────────────────
-function timeAgo(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const now = new Date();
-  const diff = (now - d) / 1000;
-  if (diff < 60) return 'just now';
-  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
-  if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
-  return Math.floor(diff/86400) + 'd ago';
-}
+// ── Actions ─────────────────────────────────
 
-function shortTime(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-}
-
-function escHtml(s) {
-  const div = document.createElement('div');
-  div.textContent = s || '';
-  return div.innerHTML;
-}
-
-// ── Render: System Metrics ─────────────
-async function loadSystem() {
-  systemData = await api('/api/system');
-  const el = document.getElementById('system-metrics');
-  const cpuClass = systemData.cpu_percent > 80 ? 'red' : systemData.cpu_percent > 50 ? 'yellow' : 'green';
-  const ramClass = systemData.ram_percent > 80 ? 'red' : systemData.ram_percent > 50 ? 'yellow' : 'green';
-  el.innerHTML = `
-    <div class="metric ${cpuClass}">
-      <div class="value">${systemData.cpu_percent}%</div>
-      <div class="label">CPU (${systemData.cpu_count} cores)</div>
-    </div>
-    <div class="metric ${ramClass}">
-      <div class="value">${systemData.ram_used_gb}/${systemData.ram_total_gb}</div>
-      <div class="label">RAM (GB)</div>
-    </div>
-    <div class="metric accent">
-      <div class="value">${systemData.uptime}</div>
-      <div class="label">Uptime</div>
-    </div>
-  `;
-  document.getElementById('uptime-display').innerHTML = `<span class="uptime">${systemData.uptime}</span> uptime`;
-  document.getElementById('timestamp-display').textContent = shortTime(systemData.timestamp);
-}
-
-// ── Render: Services ───────────────────
-async function loadServices() {
-  const services = await api('/api/services');
-  const el = document.getElementById('services-row');
-  el.innerHTML = services.map(s => {
-    const extra = s.queued_tasks ? ` (${s.queued_tasks} queued)` : '';
-    const port = s.port ? `:${s.port}` : '';
-    return `<div class="svc-pill">
-      <div class="svc-dot ${s.status}"></div>
-      <span>${escHtml(s.name)}${port}${extra}</span>
-    </div>`;
-  }).join('');
-}
-
-// ── Render: Tasks ──────────────────────
-function renderTasks(tasks, containerId, limit) {
-  const el = document.getElementById(containerId);
-  const show = limit ? tasks.slice(0, limit) : tasks;
-  if (!show.length) {
-    el.innerHTML = '<div class="empty">No tasks found</div>';
-    return;
-  }
-  el.innerHTML = show.map(t => {
-    const time = t.finished_at || t.started_at || t.dispatched_at || '';
-    return `<div class="task-row">
-      <div>
-        <div class="task-name">${escHtml(t.slug || t.id)}</div>
-        <div class="task-project">${escHtml(t.project_name || '')}</div>
-      </div>
-      <div><span class="status-badge ${t.status}">${t.status}</span></div>
-      <div style="font-size:12px;color:var(--text-dim)">${timeAgo(time)}</div>
-      <div style="font-size:11px;color:var(--text-dimmer)">${escHtml(t.branch || '')}</div>
-    </div>`;
-  }).join('');
-}
-
-async function loadTasks() {
-  const tasks = await api('/api/tasks');
-  renderTasks(tasks, 'recent-tasks', 5);
-  renderTasks(tasks, 'all-tasks');
-}
-
-// ── Render: Review Queue ───────────────
-async function loadReview() {
-  reviewData = await api('/api/review');
-  const processingItems = reviewData.filter(r => r.review_category === 'processing');
-  const actionItems = reviewData.filter(r => r.review_category === 'action_required');
-  const lowItems = reviewData.filter(r => r.review_category === 'auto_mergeable');
-  const dismissedItems = reviewData.filter(r => r.review_category === 'dismissed');
-
-  // Update badge
-  const badge = document.getElementById('review-badge');
-  badge.textContent = actionItems.length || '';
-
-  // Render action required banner on overview
-  renderActionBanner(actionItems);
-
-  // Render review sections
-  const container = document.getElementById('review-sections');
-  container.innerHTML = '';
-
-  if (!reviewData.length) {
-    container.innerHTML = '<div class="empty">No items in review queue</div>';
-    return;
-  }
-
-  if (processingItems.length) {
-    container.appendChild(createProcessingSection(processingItems));
-  }
-  if (actionItems.length) {
-    container.appendChild(createReviewSection(
-      'action-required', 'Action Required', actionItems, true
-    ));
-  }
-  if (lowItems.length) {
-    container.appendChild(createReviewSection(
-      'low-priority', 'Low Priority', lowItems, false, true
-    ));
-  }
-  if (dismissedItems.length) {
-    container.appendChild(createReviewSection(
-      'dismissed', 'Dismissed', dismissedItems, false
-    ));
-  }
-}
-
-function renderActionBanner(items) {
-  const el = document.getElementById('action-required-banner');
-  if (!items.length) {
-    el.innerHTML = '<div class="all-clear fade-in">All clear &mdash; nothing needs your attention</div>';
-    return;
-  }
-  el.innerHTML = `<div class="action-banner fade-in">
-    <h2>ACTION REQUIRED (${items.length})</h2>
-    ${items.map(item => {
-      const meta = item.meta || {};
-      const taskId = meta.task_id || item.filename;
-      return `<div class="action-item">
-        <div class="info">
-          <div class="name">${escHtml(taskId)}</div>
-          <div class="reason">${escHtml(item.reason)}</div>
-        </div>
-        <div style="display:flex;gap:4px;flex-shrink:0;">
-          <button class="btn primary" onclick="switchToReview()">Review</button>
-          <button class="btn danger" onclick="dismissItem('${escHtml(taskId)}')">Dismiss</button>
-        </div>
-      </div>`;
-    }).join('')}
-  </div>`;
-}
-
-function createProcessingSection(items) {
-  const section = document.createElement('div');
-  section.className = 'review-section processing';
-
-  section.innerHTML = `
-    <div class="review-section-header expanded" onclick="toggleSection(this)">
-      <h3>\u29bf Processing <span class="count">${items.length}</span></h3>
-      <span class="chevron">\u25B6</span>
-    </div>
-    <div class="review-section-body">
-      <div class="compact-table-header">
-        <div>Task</div>
-        <div>Project</div>
-        <div>Status</div>
-        <div>Action</div>
-      </div>
-      ${items.map(item => renderCompactTableRow(item)).join('')}
-    </div>
-  `;
-  return section;
-}
-
-function renderCompactTableRow(item) {
-  const meta = item.meta || {};
-  const taskId = meta.task_id || item.filename;
-  const slug = taskId.replace(/^\d{8}-\d{6}-/, '');
-  const project = meta.project || '';
-  const status = meta.processing_status || meta.type || 'processing';
-  const prUrl = item.pr_url || '';
-  const panelId = 'panel-' + taskId.replace(/[^a-zA-Z0-9-]/g, '_');
-  const isExpanded = expandedPanels.has(panelId);
-
-  const actionBtn = prUrl
-    ? `<a href="${escHtml(prUrl)}" target="_blank" class="btn primary" style="padding:4px 10px;font-size:11px;text-decoration:none" onclick="event.stopPropagation()">View PR</a>`
-    : `<button class="btn" style="padding:4px 10px;font-size:11px" onclick="event.stopPropagation();viewSummary('${escHtml(taskId)}')">Details</button>`;
-
-  return `
-    <div class="compact-table-row ${isExpanded ? 'expanded' : ''}" onclick="togglePanel('${panelId}')">
-      <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(slug)}</div>
-      <div>${project ? `<span class="ri-project">${escHtml(project)}</span>` : '<span style="color:var(--text-dimmer)">\u2014</span>'}</div>
-      <div><span class="spinner"></span><span style="font-size:11px;color:var(--accent)">${escHtml(status)}</span></div>
-      <div>${actionBtn}</div>
-    </div>
-    <div class="compact-table-details ${isExpanded ? 'visible' : ''}" id="${panelId}">
-      ${buildExpandedDetails(item)}
-    </div>
-  `;
-}
-
-function buildExpandedDetails(item) {
-  const parts = [];
-  if (item.reason) parts.push('<div><strong>Status:</strong> ' + escHtml(item.reason) + '</div>');
-  if (item.branch) parts.push('<div><strong>Branch:</strong> <code>' + escHtml(item.branch) + '</code></div>');
-  if (item.prompt) parts.push('<div><strong>Prompt:</strong> ' + escHtml(item.prompt) + '</div>');
-  if (item.diagnosis) parts.push('<div style="margin-top:6px">' + item.diagnosis + '</div>');
-  if (item.summary) parts.push('<div style="margin-top:6px;white-space:pre-wrap;font-family:var(--mono);font-size:11px;max-height:200px;overflow:auto">' + escHtml(item.summary) + '</div>');
-  return parts.join('') || '<div>No additional details</div>';
-}
-
-function togglePanel(panelId) {
-  const el = document.getElementById(panelId);
-  if (!el) return;
-  if (expandedPanels.has(panelId)) {
-    expandedPanels.delete(panelId);
-    el.classList.remove('visible');
-    el.previousElementSibling.classList.remove('expanded');
-  } else {
-    expandedPanels.add(panelId);
-    el.classList.add('visible');
-    el.previousElementSibling.classList.add('expanded');
-  }
-}
-
-function renderSectionAsTable(items, isDismissed) {
-  const dimStyle = isDismissed ? 'opacity:.5;' : '';
-  return `
-    <div class="compact-table-header">
-      <div>Task</div>
-      <div>Project</div>
-      <div>Status</div>
-      <div>Action</div>
-    </div>
-    ${items.map(item => {
-      const meta = item.meta || {};
-      const taskId = meta.task_id || item.filename;
-      const slug = taskId.replace(/^\d{8}-\d{6}-/, '');
-      const project = meta.project || '';
-      const type = meta.type || '';
-      const panelId = 'panel-' + taskId.replace(/[^a-zA-Z0-9-]/g, '_');
-      const isExpanded = expandedPanels.has(panelId);
-      const typeIcon = type === 'completed' ? '\u2713' : type === 'blocked' ? '\u2717' : '\u2022';
-      const statusClass = type === 'completed' ? 'completed' : type === 'blocked' ? 'blocked' : type === 'failed' ? 'failed' : 'queued';
-      const prUrl = item.pr_url || '';
-
-      const actionBtn = isDismissed
-        ? '<button class="btn" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();viewSummary(\'' + escHtml(taskId) + '\')">View</button>'
-        : (prUrl
-            ? '<a href="' + escHtml(prUrl) + '" target="_blank" class="btn primary" style="padding:4px 10px;font-size:11px;text-decoration:none" onclick="event.stopPropagation()">View PR</a>'
-            : '<button class="btn primary" style="padding:4px 10px;font-size:11px" onclick="event.stopPropagation();doAction(\'merge\',\'' + escHtml(taskId) + '\')">Merge</button>'
-          ) + ' <button class="btn" style="padding:4px 8px;font-size:11px" onclick="event.stopPropagation();viewSummary(\'' + escHtml(taskId) + '\')">Details</button>';
-
-      return `
-        <div class="compact-table-row ${isExpanded ? 'expanded' : ''}" style="${dimStyle}" onclick="togglePanel('${panelId}')">
-          <div style="font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(slug)}</div>
-          <div>${project ? '<span class="ri-project">' + escHtml(project) + '</span>' : '<span style="color:var(--text-dimmer)">\u2014</span>'}</div>
-          <div><span class="status-badge ${statusClass}">${typeIcon} ${escHtml(type || 'pending')}</span></div>
-          <div style="display:flex;gap:4px">${actionBtn}</div>
-        </div>
-        <div class="compact-table-details ${isExpanded ? 'visible' : ''}" id="${panelId}">
-          ${buildExpandedDetails(item)}
-        </div>
-      `;
-    }).join('')}
-  `;
-}
-
-function setSectionView(sectionId, mode) {
-  sectionViewMode[sectionId] = mode;
-  loadReview();
-}
-
-function createReviewSection(className, title, items, expanded, showBatchMerge) {
-  const section = document.createElement('div');
-  section.className = 'review-section ' + className;
-  const emoji = className === 'action-required' ? '\u{1f534}' :
-                className === 'low-priority' ? '\u{1f4e6}' : '\u2717';
-  const headerClass = expanded ? 'expanded' : '';
-  const bodyClass = expanded ? '' : 'collapsed';
-  const sectionId = 'section-' + className;
-  const showToggle = items.length > 3;
-  const viewMode = sectionViewMode[sectionId] || (showToggle ? 'table' : 'cards');
-  const isDismissed = className === 'dismissed';
-
-  section.innerHTML = `
-    <div class="review-section-header ${headerClass}" onclick="toggleSection(this)">
-      <h3>${emoji} ${title} <span class="count">${items.length}</span></h3>
-      <div style="display:flex;align-items:center;gap:8px;">
-        ${showToggle ? `
-          <div class="view-toggle" onclick="event.stopPropagation()">
-            <button class="${viewMode === 'cards' ? 'active' : ''}" onclick="setSectionView('${sectionId}','cards')">Cards</button>
-            <button class="${viewMode === 'table' ? 'active' : ''}" onclick="setSectionView('${sectionId}','table')">Table</button>
-          </div>
-        ` : ''}
-        ${showBatchMerge ? '<button class="btn batch success" onclick="event.stopPropagation();batchMerge()">Merge All</button>' : ''}
-        <span class="chevron">\u25B6</span>
-      </div>
-    </div>
-    <div class="review-section-body ${bodyClass}">
-      ${viewMode === 'table' && showToggle
-        ? renderSectionAsTable(items, isDismissed)
-        : items.map(item => renderReviewItem(item, isDismissed)).join('')}
-    </div>
-  `;
-  return section;
-}
-
-function renderReviewItem(item, isDismissed) {
-  const meta = item.meta || {};
-  const taskId = meta.task_id || item.filename;
-  const project = meta.project || '';
-  const type = meta.type || '';
-  const created = meta.created_at || '';
-  const dimStyle = isDismissed ? 'opacity:.5;' : '';
-  // Show slug instead of full task ID
-  const slug = taskId.replace(/^\d{8}-\d{6}-/, '');
-  const typeIcon = type === 'completed' ? '\u2713' : type === 'blocked' ? '\u2717' : '\u2022';
-  const typeColor = type === 'completed' ? 'var(--success-text)' : type === 'blocked' ? 'var(--error-text)' : 'var(--text-dim)';
-
-  return `<div class="review-item" style="${dimStyle}">
-    <span style="color:${typeColor};font-weight:700;font-size:14px;width:16px;text-align:center">${typeIcon}</span>
-    <span class="ri-slug">${escHtml(slug)}</span>
-    ${project ? `<span class="ri-project">${escHtml(project)}</span>` : ''}
-    <span class="ri-time">${created ? timeAgo(created) : ''}</span>
-    <div class="ri-actions">
-      ${!isDismissed ? `
-        <button class="btn primary" style="padding:4px 10px;font-size:11px" onclick="doAction('merge','${escHtml(taskId)}')">Merge</button>
-        <button class="btn" style="padding:4px 8px;font-size:11px" onclick="viewSummary('${escHtml(taskId)}')">Details</button>
-      ` : `
-        <button class="btn" style="padding:4px 8px;font-size:11px" onclick="viewSummary('${escHtml(taskId)}')">View</button>
-      `}
-    </div>
-  </div>`;
-}
-
-function toggleSection(header) {
-  header.classList.toggle('expanded');
-  const body = header.nextElementSibling;
-  body.classList.toggle('collapsed');
-}
-
-function switchToReview() {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.querySelector('[data-tab="review"]').classList.add('active');
-  document.getElementById('tab-review').classList.add('active');
-}
-
-// ── Actions ────────────────────────────
-async function doAction(type, slug, description) {
-  const result = await apiPost('/api/action', {type, task_slug: slug, description: description || ''});
-  if (result.status === 'ok') {
-    showToast(`${type.toUpperCase()} action submitted for ${slug}`);
-    loadReview();
-  }
-}
-
-async function dismissItem(slug) {
-  await doAction('skip', slug);
-}
-
-async function batchMerge() {
-  const lowItems = reviewData.filter(r => r.review_category === 'auto_mergeable');
-  for (const item of lowItems) {
-    const taskId = (item.meta || {}).task_id || item.filename;
-    await doAction('merge', taskId);
-  }
-  showToast(`Batch merge submitted for ${lowItems.length} items`);
-  loadReview();
-}
-
-async function viewSummary(taskId) {
-  const data = await api('/api/logs/' + encodeURIComponent(taskId));
-  const container = document.getElementById('log-viewer-container');
-  document.getElementById('log-viewer-title').textContent = 'Summary: ' + taskId;
-  document.getElementById('log-viewer-content').textContent = data.summary || data.log_tail || 'No log available';
-  container.style.display = 'block';
-  // Switch to logs tab
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.querySelector('[data-tab="logs"]').classList.add('active');
-  document.getElementById('tab-logs').classList.add('active');
-  container.scrollIntoView({behavior: 'smooth'});
-}
-
-// ── Notifications ──────────────────────
-async function loadNotifications() {
-  const [status, history] = await Promise.all([
-    api('/api/notifications/status'),
-    api('/api/notifications'),
-  ]);
-
-  // Status grid
-  const statusEl = document.getElementById('notif-status');
-  statusEl.innerHTML = `
-    <div class="notif-status-item">
-      <div class="ns-label">Gmail</div>
-      <div class="ns-value ${status.gmail_configured ? 'ok' : 'bad'}">
-        ${status.gmail_configured ? 'Configured' : 'Not configured'}
-      </div>
-    </div>
-    <div class="notif-status-item">
-      <div class="ns-label">Last Sent</div>
-      <div class="ns-value">${status.last_sent ? timeAgo(status.last_sent) : 'Never'}</div>
-    </div>
-    <div class="notif-status-item">
-      <div class="ns-label">Reply-to-Action</div>
-      <div class="ns-value ${status.reply_to_action ? 'ok' : 'bad'}">
-        ${status.reply_to_action ? 'Enabled' : 'Disabled'}
-      </div>
-    </div>
-    <div class="notif-status-item">
-      <div class="ns-label">Notify Script</div>
-      <div class="ns-value ${status.notify_script_exists ? 'ok' : 'bad'}">
-        ${status.notify_script_exists ? 'Found' : 'Missing'}
-      </div>
-    </div>
-  `;
-
-  // Preferences
-  const prefs = status.preferences || {};
-  const prefsEl = document.getElementById('notif-prefs');
-  const prefLabels = {
-    task_completed: 'Task Completed',
-    task_failed: 'Task Failed',
-    task_blocked: 'Task Blocked',
-    service_down: 'Service Down',
-  };
-  prefsEl.innerHTML = Object.entries(prefLabels).map(([key, label]) => `
-    <div class="pref-row">
-      <span class="pref-label">${label}</span>
-      <label class="toggle">
-        <input type="checkbox" ${prefs[key] !== false ? 'checked' : ''} onchange="updatePref('${key}', this.checked)">
-        <span class="slider"></span>
-      </label>
-    </div>
-  `).join('');
-
-  // History
-  const histEl = document.getElementById('notif-history');
-  if (!history.length) {
-    histEl.innerHTML = '<div class="empty">No notifications sent yet</div>';
-  } else {
-    histEl.innerHTML = history.map(n => `
-      <div class="nh-row">
-        <div class="nh-time">${shortTime(n.timestamp) || escHtml(n.timestamp || '')}</div>
-        <div class="nh-subject">${escHtml(n.subject || '')}</div>
-        <div class="nh-task">${escHtml(n.task_id || '')}</div>
-        <div class="nh-reply ${n.reply_received ? 'yes' : 'no'}">${n.reply_received ? 'Replied' : 'No reply'}</div>
-      </div>
-    `).join('');
-  }
-}
-
-async function updatePref(key, value) {
-  const status = await api('/api/notifications/status');
-  const prefs = status.preferences || {};
-  prefs[key] = value;
-  await apiPost('/api/notifications/preferences', prefs);
-  showToast(`${key} notifications ${value ? 'enabled' : 'disabled'}`);
-}
-
-document.getElementById('btn-test-email').addEventListener('click', async () => {
-  const btn = document.getElementById('btn-test-email');
+async function doMerge(slug, btn) {
   btn.disabled = true;
-  btn.textContent = 'Sending...';
-  const result = await apiPost('/api/notifications/test', {});
-  btn.disabled = false;
-  btn.textContent = 'Send Test Email';
-  showToast(result.message || result.status);
-  loadNotifications();
-});
-
-// Quick action
-document.getElementById('btn-quick-action').addEventListener('click', () => {
-  const input = document.getElementById('quick-action-input');
-  const val = input.value.trim();
-  if (!val) return;
-  const parts = val.split(/\s+/);
-  const cmd = parts[0].toUpperCase();
-  const rest = parts.slice(1).join(' ');
-  if (['MERGE', 'FIX', 'SKIP', 'QUEUE'].includes(cmd)) {
-    doAction(cmd.toLowerCase(), rest.split(' ')[0] || '', rest);
-    input.value = '';
-  } else {
-    showToast('Unknown command. Use MERGE, FIX, SKIP, or QUEUE.');
+  btn.textContent = 'merging...';
+  try {
+    const res = await apiPost('/api/action', { type: 'merge', task_slug: slug });
+    if (res.status === 'ok') {
+      toast('Merged: ' + (res.message || slug), true);
+      const row = btn.closest('tr');
+      if (row) row.remove();
+      setTimeout(refresh, 1000);
+    } else {
+      toast('Merge failed: ' + (res.message || 'unknown error'), false);
+      btn.disabled = false;
+      btn.textContent = 'Merge';
+    }
+  } catch (e) {
+    toast('Merge error: ' + e.message, false);
+    btn.disabled = false;
+    btn.textContent = 'Merge';
   }
-});
-document.getElementById('quick-action-input').addEventListener('keydown', e => {
-  if (e.key === 'Enter') document.getElementById('btn-quick-action').click();
-});
+}
 
-// ── Projects ───────────────────────────
-async function loadProjects() {
-  const projects = await api('/api/projects');
-  const el = document.getElementById('projects-grid');
-  if (!projects.length) {
-    el.innerHTML = '<div class="empty">No projects registered</div>';
+async function doDismiss(slug, btn) {
+  btn.disabled = true;
+  btn.textContent = 'dismissing...';
+  try {
+    const res = await apiPost('/api/action', { type: 'skip', task_slug: slug });
+    if (res.status === 'ok') {
+      toast('Dismissed: ' + shortSlug(slug), true);
+      const row = btn.closest('tr');
+      if (row) row.remove();
+      setTimeout(refresh, 1000);
+    } else {
+      toast('Dismiss failed: ' + (res.message || ''), false);
+      btn.disabled = false;
+      btn.textContent = 'Dismiss';
+    }
+  } catch (e) {
+    toast('Dismiss error: ' + e.message, false);
+    btn.disabled = false;
+    btn.textContent = 'Dismiss';
+  }
+}
+
+async function doAutofix(slug, btn) {
+  btn.disabled = true;
+  btn.textContent = 'dispatching...';
+  try {
+    const res = await apiPost('/api/action', { type: 'fix', task_slug: slug });
+    if (res.status === 'ok') {
+      toast('Fix dispatched: ' + shortSlug(slug), true);
+      const row = btn.closest('tr');
+      if (row) row.remove();
+      setTimeout(refresh, 1000);
+    } else {
+      toast('Fix failed: ' + (res.message || ''), false);
+      btn.disabled = false;
+      btn.textContent = 'Auto-fix';
+    }
+  } catch (e) {
+    toast('Fix error: ' + e.message, false);
+    btn.disabled = false;
+    btn.textContent = 'Auto-fix';
+  }
+}
+
+// ── Renderers ───────────────────────────────
+
+function renderSystem(data) {
+  document.getElementById('sys-cpu').textContent = data.cpu_percent + '%';
+  document.getElementById('sys-ram').textContent = data.ram_used_gb + '/' + data.ram_total_gb + ' GB';
+  document.getElementById('sys-disk').textContent = (data.disk_free_gb || '--') + ' GB free';
+  document.getElementById('sys-uptime').textContent = data.uptime || '--';
+}
+
+function renderServices(svcs) {
+  const bar = document.getElementById('svc-bar');
+  bar.innerHTML = svcs.map(function(s) {
+    const up = s.status === 'up';
+    const label = s.port ? s.name + ':' + s.port : s.name;
+    return '<span>' + esc(label) + ' <span class="svc-dot ' + (up ? 'up' : 'down') + '"></span></span>';
+  }).join('');
+}
+
+function renderActiveTasks(tasks) {
+  const active = tasks.filter(function(t) { return t.status === 'running' || t.status === 'queued'; });
+  const el = document.getElementById('active-body');
+
+  if (active.length === 0) {
+    el.innerHTML = '<div class="empty">No active tasks</div>';
     return;
   }
-  el.innerHTML = projects.map(p => `
-    <div class="project-card">
-      <div class="pc-name">
-        ${escHtml(p.name)}
-        ${p.primary ? '<span class="primary-badge">Primary</span>' : ''}
-      </div>
-      <div class="pc-notes">${escHtml(p.notes)}</div>
-      <div class="pc-path">${escHtml(p.path)}</div>
-      ${p.github_url ? `<a href="${escHtml(p.github_url)}" target="_blank" class="btn" style="margin-top:8px;text-decoration:none;">GitHub</a>` : ''}
-    </div>
-  `).join('');
+
+  let html = '<table><tr><th>Task</th><th>Project</th><th>Status</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Branch</th></tr>';
+  for (let i = 0; i < active.length; i++) {
+    const t = active[i];
+    const cls = t.status === 'running' ? 'running' : 'queued';
+    html += '<tr class="' + cls + '">';
+    html += '<td>' + esc(shortSlug(t.id || t.slug)) + '</td>';
+    html += '<td>' + esc(t.project_name || '--') + '</td>';
+    html += '<td>' + badge(t.status) + '</td>';
+    html += '<td class="hide-mobile">' + duration(t.started_at, t.finished_at) + '</td>';
+    html += '<td class="hide-mobile">' + esc(shortBranch(t.branch)) + '</td>';
+    html += '</tr>';
+  }
+  html += '</table>';
+  el.innerHTML = html;
 }
 
-// ── Logs ───────────────────────────────
-async function loadLogs() {
-  const logs = await api('/api/logs');
-  const el = document.getElementById('logs-list');
-  if (!logs.length) {
-    el.innerHTML = '<div class="empty">No logs available</div>';
+function renderCompleted(tasks) {
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  const recent = tasks.filter(function(t) {
+    if (t.status !== 'completed' && t.status !== 'merged' && t.status !== 'failed') return false;
+    const fin = t.finished_at || t.merged_at;
+    if (!fin) return false;
+    return new Date(fin).getTime() > cutoff;
+  });
+
+  document.getElementById('completed-count').textContent = '(' + recent.length + ')';
+
+  const el = document.getElementById('completed-body');
+  if (recent.length === 0) {
+    el.innerHTML = '<div class="empty">No completed tasks in last 24h</div>';
     return;
   }
-  el.innerHTML = logs.map(l => `
-    <div class="card" style="cursor:pointer" onclick="openLog('${escHtml(l.task_id)}')">
-      <div style="display:flex;align-items:center;justify-content:space-between;">
-        <div>
-          <strong>${escHtml(l.task_id)}</strong>
-          ${l.has_summary ? '<span style="color:var(--green);font-size:11px;margin-left:6px;">summary</span>' : ''}
-          ${l.has_log ? '<span style="color:var(--accent);font-size:11px;margin-left:6px;">log</span>' : ''}
-        </div>
-        <span style="font-size:12px;color:var(--text-dim)">${timeAgo(l.modified)}</span>
-      </div>
-    </div>
-  `).join('');
-}
 
-async function openLog(taskId) {
-  const data = await api('/api/logs/' + encodeURIComponent(taskId));
-  const container = document.getElementById('log-viewer-container');
-  document.getElementById('log-viewer-title').textContent = taskId;
-  document.getElementById('log-viewer-content').textContent = data.summary || data.log_tail || 'No content';
-  container.style.display = 'block';
-  container.scrollIntoView({behavior: 'smooth'});
-}
-
-// ── Toast ──────────────────────────────
-function showToast(msg) {
-  let toast = document.getElementById('toast');
-  if (!toast) {
-    toast = document.createElement('div');
-    toast.id = 'toast';
-    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--bg-card);border:1px solid var(--border);color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;z-index:999;box-shadow:0 4px 12px rgba(0,0,0,.4);transition:opacity .3s;';
-    document.body.appendChild(toast);
+  let html = '<table><tr><th>Task</th><th>Project</th><th>Status</th><th class="hide-mobile">Duration</th><th class="hide-mobile">Finished</th></tr>';
+  for (let i = 0; i < recent.length; i++) {
+    const t = recent[i];
+    html += '<tr>';
+    html += '<td>' + esc(shortSlug(t.id || t.slug)) + '</td>';
+    html += '<td>' + esc(t.project_name || '--') + '</td>';
+    html += '<td>' + badge(t.status) + '</td>';
+    html += '<td class="hide-mobile">' + duration(t.started_at, t.finished_at) + '</td>';
+    html += '<td class="hide-mobile">' + timeAgo(t.finished_at || t.merged_at) + '</td>';
+    html += '</tr>';
   }
-  toast.textContent = msg;
-  toast.style.opacity = '1';
-  clearTimeout(toast._timer);
-  toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 3000);
+  html += '</table>';
+  el.innerHTML = html;
 }
 
-// ── Init ───────────────────────────────
-async function init() {
-  await Promise.all([
-    loadSystem(),
-    loadServices(),
-    loadTasks(),
-    loadReview(),
-    loadNotifications(),
-    loadProjects(),
-    loadLogs(),
-  ]);
+function renderReview(items) {
+  const sec = document.getElementById('review-section');
+  const el = document.getElementById('review-body');
+
+  if (items.length === 0) {
+    sec.style.display = 'none';
+    return;
+  }
+  sec.style.display = '';
+
+  let html = '<table><tr><th>Task</th><th>Project</th><th>Type</th><th class="hide-mobile">Reason</th><th>Action</th></tr>';
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i];
+    const meta = item.meta || {};
+    const taskId = meta.task_id || '';
+    const slug = shortSlug(taskId);
+    const project = meta.project || '--';
+    const itemType = meta.type || 'unknown';
+    const reason = item.reason || '';
+    const safeId = taskId.replace(/'/g, "\\'");
+
+    let actions = '';
+    if (itemType === 'completed') {
+      actions += '<button class="btn btn-merge" onclick="doMerge(\'' + safeId + '\', this)">Merge</button> ';
+      actions += '<button class="btn btn-dismiss" onclick="doDismiss(\'' + safeId + '\', this)">Dismiss</button>';
+    } else if (itemType === 'failed' || itemType === 'blocked') {
+      actions += '<button class="btn btn-fix" onclick="doAutofix(\'' + safeId + '\', this)">Auto-fix</button> ';
+      actions += '<button class="btn btn-dismiss" onclick="doDismiss(\'' + safeId + '\', this)">Dismiss</button>';
+    } else {
+      actions += '<button class="btn btn-dismiss" onclick="doDismiss(\'' + safeId + '\', this)">Dismiss</button>';
+    }
+
+    html += '<tr>';
+    html += '<td>' + esc(slug) + '</td>';
+    html += '<td>' + esc(project) + '</td>';
+    html += '<td>' + badge(itemType) + '</td>';
+    html += '<td class="hide-mobile">' + esc(reason) + '</td>';
+    html += '<td style="white-space:nowrap">' + actions + '</td>';
+    html += '</tr>';
+  }
+  html += '</table>';
+  el.innerHTML = html;
 }
 
-init();
+function renderBacklog(tasks) {
+  document.getElementById('backlog-count').textContent = '(' + tasks.length + ')';
 
-// Auto-refresh
-autoRefreshTimer = setInterval(() => {
-  loadSystem();
-  loadServices();
-  loadTasks();
-  loadReview();
-}, REFRESH_INTERVAL);
+  const el = document.getElementById('backlog-body');
+  if (tasks.length === 0) {
+    el.innerHTML = '<div class="empty">No backlog items</div>';
+    return;
+  }
+
+  let html = '<table><tr><th>Pri</th><th>Task</th><th>Project</th><th class="hide-mobile">Est.</th><th class="hide-mobile">Category</th></tr>';
+  for (let i = 0; i < tasks.length; i++) {
+    const t = tasks[i];
+    html += '<tr>';
+    html += '<td>' + (t.priority != null ? t.priority : '--') + '</td>';
+    html += '<td>' + esc(t.slug || t.id || '--') + '</td>';
+    html += '<td>' + esc(t.project_name || '--') + '</td>';
+    html += '<td class="hide-mobile">' + (t.estimated_minutes ? t.estimated_minutes + 'm' : '--') + '</td>';
+    html += '<td class="hide-mobile">' + esc(t.category || '--') + '</td>';
+    html += '</tr>';
+  }
+  html += '</table>';
+  el.innerHTML = html;
+}
+
+function updateTimestamp() {
+  const ago = Math.floor((Date.now() - lastFetch) / 1000);
+  document.getElementById('updated').textContent = ago + 's ago';
+}
+
+// ── Main refresh ────────────────────────────
+
+async function refresh() {
+  try {
+    const [sys, svcs, tasks, review, backlog] = await Promise.all([
+      api('/api/system'),
+      api('/api/services'),
+      api('/api/tasks'),
+      api('/api/review'),
+      api('/api/backlog'),
+    ]);
+
+    lastFetch = Date.now();
+    document.getElementById('live-dot').className = 'live-dot';
+
+    renderSystem(sys);
+    renderServices(svcs);
+    renderActiveTasks(tasks);
+    renderCompleted(tasks);
+    renderReview(review);
+    renderBacklog(backlog);
+  } catch (e) {
+    document.getElementById('live-dot').className = 'live-dot dead';
+    console.error('Refresh failed:', e);
+  }
+}
+
+// ── Init ────────────────────────────────────
+
+refresh();
+setInterval(refresh, REFRESH);
+setInterval(updateTimestamp, 1000);
 </script>
 </body>
 </html>
