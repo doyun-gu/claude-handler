@@ -32,6 +32,7 @@ TASKS_DIR = FLEET_DIR / "tasks"
 REVIEW_DIR = FLEET_DIR / "review-queue"
 LOGS_DIR = FLEET_DIR / "logs"
 PROJECTS_FILE = FLEET_DIR / "projects.json"
+EVENTS_FILE = FLEET_DIR / "events.json"
 REPLY_ACTIONS_DIR = FLEET_DIR / "reply-actions"
 SECRETS_DIR = FLEET_DIR / "secrets"
 STATIC_DIR = Path(__file__).parent
@@ -873,6 +874,78 @@ async def get_backlog():
         return data.get("tasks", [])
     except (json.JSONDecodeError, OSError):
         return []
+
+
+# ── Events Endpoints ───────────────────────────────────
+
+
+def _compute_event_status(event: dict) -> str:
+    """Compute status for an event: past, active, imminent, upcoming."""
+    now = datetime.utcnow()
+    try:
+        start = datetime.fromisoformat(event["start"].replace("Z", "+00:00")).replace(tzinfo=None)
+        end = datetime.fromisoformat(event["end"].replace("Z", "+00:00")).replace(tzinfo=None)
+    except (KeyError, ValueError):
+        return "upcoming"
+
+    if now >= end:
+        return "past"
+    if now >= start:
+        return "active"
+    # Within 1 hour of start
+    delta = (start - now).total_seconds()
+    if delta <= 3600:
+        return "imminent"
+    return "upcoming"
+
+
+@app.get("/api/events")
+async def get_events():
+    """Get events with computed status field."""
+    if not EVENTS_FILE.exists():
+        return []
+    try:
+        events = json.loads(EVENTS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+    for event in events:
+        event["status"] = _compute_event_status(event)
+    return events
+
+
+class EventCreate(BaseModel):
+    title: str
+    start: str
+    end: str
+    freeze_projects: list[str] = []
+    freeze_from: str = ""
+    freeze_until: str = ""
+    notes: str = ""
+
+
+@app.post("/api/events")
+async def create_event(event: EventCreate):
+    """Add a new event to events.json."""
+    FLEET_DIR.mkdir(parents=True, exist_ok=True)
+    events = []
+    if EVENTS_FILE.exists():
+        try:
+            events = json.loads(EVENTS_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            events = []
+    new_event = event.model_dump()
+    # Remove empty optional fields
+    if not new_event.get("freeze_from"):
+        new_event.pop("freeze_from", None)
+    if not new_event.get("freeze_until"):
+        new_event.pop("freeze_until", None)
+    if not new_event.get("notes"):
+        new_event.pop("notes", None)
+    if not new_event.get("freeze_projects"):
+        new_event.pop("freeze_projects", None)
+    events.append(new_event)
+    EVENTS_FILE.write_text(json.dumps(events, indent=2) + "\n")
+    return {"status": "ok", "message": f"Event '{event.title}' added"}
 
 
 # ── Static file serving ─────────────────────────────────
