@@ -13,6 +13,7 @@ Commands:
   fleet-brain.py pr-auto-merge TASK_FILE           # classify + auto-merge if safe
   fleet-brain.py conflict-fix TASK_FILE            # diagnose conflict, create fix task
   fleet-brain.py cleanup                           # prune branches, archive manifests
+  fleet-brain.py log-rotate                        # rotate logs, gzip old, archive tasks
   fleet-brain.py task-field / update-status / count-status  # manifest helpers
   fleet-brain.py cancel / backlog-next / backlog-field      # task management
 """
@@ -31,6 +32,156 @@ from typing import Optional
 FLEET_DIR = Path.home() / ".claude-fleet"
 TASKS_DIR = FLEET_DIR / "tasks"
 ARCHIVE_DIR = FLEET_DIR / "archive"
+LOGS_DIR = FLEET_DIR / "logs"
+FLEET_RULES_PATH = Path(__file__).parent / "fleet-rules.md"
+
+
+# ── Rules Config ─────────────────────────────────────────────
+# Loads fleet-rules.md and extracts operational policies.
+# All scheduling, PR management, and watchdog logic should reference
+# these values instead of hardcoding.
+
+_rules_cache = None
+
+
+def rules_config() -> dict:
+    """
+    Load fleet-rules.md and extract structured policy values.
+    Cached after first call. Returns defaults if file is missing.
+    """
+    global _rules_cache
+    if _rules_cache is not None:
+        return _rules_cache
+
+    defaults = {
+        # Priority thresholds
+        "p0_min": 0,         # priority >= 0 → P0 (user-dispatched)
+        "p1_value": -1,      # priority == -1 → P1 (auto-fix)
+        "p2_max": -2,        # priority <= -2 → P2 (backlog/maintenance)
+        # Slugs that default to P2 unless explicitly set higher
+        "p2_slug_keywords": ["maintenance", "review", "audit", "optimization"],
+        # Slugs that default to P1
+        "p1_slug_keywords": ["bugfix", "auto-fix", "bug-fix", "hotfix"],
+        # Auto-merge policy
+        "auto_merge_topics": ["docs", "infra", "test"],
+        "auto_merge_max_lines": 500,
+        "needs_review_patterns": ["feat", "ui", "ux", "refactor"],
+        # Scheduling
+        "daytime_start_hour": 8,
+        "daytime_end_hour": 23,
+        "idle_before_backlog_secs": 1800,  # 30 min
+        # Merge rules
+        "max_merge_tasks": 3,
+        "min_affinity_to_merge": 0.6,
+        "max_prompt_chars": 4000,
+        # Watchdog
+        "stuck_threshold_multiplier": 3,
+        "min_runtime_minutes": 20,
+        "absolute_max_minutes": 90,
+        # Retry
+        "max_retries": 3,
+        # Maintenance
+        "maintenance_max_per_week": 2,
+        "maintenance_interval_days": 2,
+        # Log rotation
+        "log_keep_days": 14,
+        "daemon_log_keep": 7,
+        "health_log_keep": 3,
+        "archive_after_days": 7,
+        # Notification
+        "email_on": ["failed_3x", "blocked", "critical"],
+        "suppress": ["completed", "auto_fixed", "merge_confirm", "queue_update"],
+    }
+
+    if not FLEET_RULES_PATH.exists():
+        _rules_cache = defaults
+        return _rules_cache
+
+    try:
+        content = FLEET_RULES_PATH.read_text()
+    except OSError:
+        _rules_cache = defaults
+        return _rules_cache
+
+    # Parse key values from the markdown tables and bullet points
+    # Auto-merge max lines
+    m = re.search(r"Large refactors.*?>(\d+)\s*lines", content, re.IGNORECASE)
+    if m:
+        defaults["auto_merge_max_lines"] = int(m.group(1))
+
+    # Daytime hours
+    m = re.search(r"Daytime.*?(\d+)am.*?(\d+)pm", content, re.IGNORECASE)
+    if m:
+        defaults["daytime_start_hour"] = int(m.group(1))
+        defaults["daytime_end_hour"] = int(m.group(2)) + 12  # convert PM to 24h
+
+    # Idle before backlog
+    m = re.search(r"idle\s+(\d+)\+?\s*min", content, re.IGNORECASE)
+    if m:
+        defaults["idle_before_backlog_secs"] = int(m.group(1)) * 60
+
+    # Max retries
+    m = re.search(r"max\s+(\d+)\)", content, re.IGNORECASE)
+    if m:
+        defaults["max_retries"] = int(m.group(1))
+
+    # Maintenance cadence
+    m = re.search(r"max\s+(\d+)x/week", content, re.IGNORECASE)
+    if m:
+        defaults["maintenance_max_per_week"] = int(m.group(1))
+
+    m = re.search(r"Every\s+(\d+)-(\d+)\s+days", content, re.IGNORECASE)
+    if m:
+        defaults["maintenance_interval_days"] = int(m.group(1))
+
+    _rules_cache = defaults
+    return _rules_cache
+
+
+# ── Priority Helpers ─────────────────────────────────────────
+
+def priority_level(priority: int) -> str:
+    """Return the priority level label for a given priority value."""
+    rules = rules_config()
+    if priority >= rules["p0_min"]:
+        return "P0"
+    elif priority == rules["p1_value"]:
+        return "P1"
+    else:
+        return "P2"
+
+
+def priority_level_icon(priority: int) -> str:
+    """Return priority with icon for display."""
+    level = priority_level(priority)
+    icons = {"P0": "🔴 P0", "P1": "🟡 P1", "P2": "⚪ P2"}
+    return icons.get(level, level)
+
+
+def default_priority_for_slug(slug: str) -> Optional[int]:
+    """
+    Determine the default priority based on slug keywords.
+    Returns None if no keyword match (caller keeps existing priority).
+    """
+    rules = rules_config()
+    slug_lower = slug.lower()
+
+    for kw in rules["p1_slug_keywords"]:
+        if kw in slug_lower:
+            return rules["p1_value"]  # -1
+
+    for kw in rules["p2_slug_keywords"]:
+        if kw in slug_lower:
+            return rules["p2_max"]  # -2
+
+    return None
+
+
+def is_daytime() -> bool:
+    """Check if current time is within daytime hours (user likely present)."""
+    rules = rules_config()
+    hour = datetime.now().hour
+    return rules["daytime_start_hour"] <= hour < rules["daytime_end_hour"]
 
 # ── Keywords for auto-grouping and affinity ──────────────────
 
@@ -130,6 +281,11 @@ class Task:
         t.topics = classify_topics(t.slug, t.prompt)
         if not t.group:
             t.group = infer_group(t)
+        # Apply default priority from slug keywords if priority was not explicitly set
+        if d.get("priority") is None or d.get("priority") == 0:
+            dp = default_priority_for_slug(t.slug)
+            if dp is not None:
+                t.priority = dp
         return t
 
 
@@ -277,10 +433,23 @@ def score_task(task: Task, just_completed: Optional[Task], all_tasks: list) -> f
     """
     Score a queued task for scheduling priority.
     Higher score = run sooner.
+
+    Priority tiers enforce strict ordering:
+      P0 (priority >= 0): +10000 — always before P1/P2
+      P1 (priority == -1): +5000  — before P2
+      P2 (priority <= -2): +0     — only when no P0/P1
     """
     score = 0.0
 
-    # Base priority from manifest
+    # Tier bonus: ensures P0 always beats P1 always beats P2
+    level = priority_level(task.priority)
+    if level == "P0":
+        score += 10000
+    elif level == "P1":
+        score += 5000
+    # P2 gets no tier bonus
+
+    # Base priority from manifest (within-tier ordering)
     score += task.priority * 10
 
     # Affinity bonus: if similar to just-completed task, prefer it
@@ -985,6 +1154,168 @@ Conflicting files: {', '.join(conflict_files)}
     return str(fix_path)
 
 
+# ── Log Management ───────────────────────────────────────────
+
+def cmd_log_rotate(_args):
+    """
+    Rotate and clean up fleet logs.
+
+    Rules (from fleet-rules.md):
+    - Summaries (.summary.md): keep forever, NEVER delete
+    - Task manifests: after status=merged for 7+ days, move to archive/
+    - Task logs (.log): gzip after task completes, delete after 14 days
+    - daemon.log: rotate daily, keep 7 (daemon.log.1, .2, etc.)
+    - demo-health.log: rotate daily, keep 3
+    - Review queue items: delete after PR merged or dismissed
+    """
+    import gzip as gzip_mod
+
+    rules = rules_config()
+    now = datetime.now(timezone.utc)
+    report = {
+        "gzipped_logs": 0,
+        "deleted_logs": 0,
+        "archived_tasks": 0,
+        "rotated_daemon": False,
+        "rotated_health": False,
+        "cleaned_reviews": 0,
+    }
+
+    print("[log-rotate] Starting log rotation...")
+
+    # ── 1. Task logs: gzip completed, delete old ────────────
+    if LOGS_DIR.exists():
+        tasks = load_all_tasks()
+        completed_ids = {
+            t.id for t in tasks
+            if t.status in ("completed", "merged", "failed", "cancelled")
+        }
+        # Also check archived tasks
+        if ARCHIVE_DIR.exists():
+            for af in ARCHIVE_DIR.glob("*.json"):
+                try:
+                    completed_ids.add(json.loads(af.read_text()).get("id", ""))
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+        for log_file in LOGS_DIR.glob("*.log"):
+            # Extract task ID from filename
+            task_id = log_file.stem
+
+            # Skip daemon.log and other non-task logs
+            if task_id in ("daemon", "demo-health"):
+                continue
+
+            # Gzip completed task logs that aren't already compressed
+            if task_id in completed_ids:
+                gz_path = log_file.with_suffix(".log.gz")
+                if not gz_path.exists():
+                    try:
+                        with open(log_file, "rb") as f_in:
+                            with gzip_mod.open(str(gz_path), "wb") as f_out:
+                                f_out.writelines(f_in)
+                        log_file.unlink()
+                        report["gzipped_logs"] += 1
+                    except OSError as e:
+                        print(f"[log-rotate]   Warning: could not gzip {log_file.name}: {e}",
+                              file=sys.stderr)
+
+            # Delete old gzipped logs (> 14 days)
+            for gz_file in LOGS_DIR.glob("*.log.gz"):
+                try:
+                    age_days = (now.timestamp() - gz_file.stat().st_mtime) / 86400
+                    if age_days > rules["log_keep_days"]:
+                        gz_file.unlink()
+                        report["deleted_logs"] += 1
+                except OSError:
+                    pass
+
+    # ── 2. Rotate daemon.log ───────────────────────────────
+    daemon_log = LOGS_DIR / "daemon.log"
+    if daemon_log.exists() and daemon_log.stat().st_size > 0:
+        keep = rules["daemon_log_keep"]
+        # Shift existing rotated files: .7 → delete, .6 → .7, etc.
+        for i in range(keep, 0, -1):
+            old = LOGS_DIR / f"daemon.log.{i}"
+            if i == keep and old.exists():
+                old.unlink()
+            elif old.exists():
+                old.rename(LOGS_DIR / f"daemon.log.{i + 1}")
+        # Current → .1
+        if daemon_log.exists():
+            shutil.copy2(str(daemon_log), str(LOGS_DIR / "daemon.log.1"))
+            daemon_log.write_text("")  # truncate
+            report["rotated_daemon"] = True
+
+    # ── 3. Rotate demo-health.log ──────────────────────────
+    health_log = LOGS_DIR / "demo-health.log"
+    if health_log.exists() and health_log.stat().st_size > 0:
+        keep = rules["health_log_keep"]
+        for i in range(keep, 0, -1):
+            old = LOGS_DIR / f"demo-health.log.{i}"
+            if i == keep and old.exists():
+                old.unlink()
+            elif old.exists():
+                old.rename(LOGS_DIR / f"demo-health.log.{i + 1}")
+        if health_log.exists():
+            shutil.copy2(str(health_log), str(LOGS_DIR / "demo-health.log.1"))
+            health_log.write_text("")
+            report["rotated_health"] = True
+
+    # ── 4. Archive old merged task manifests ────────────────
+    ARCHIVE_DIR.mkdir(parents=True, exist_ok=True)
+    tasks = load_all_tasks()
+    for t in tasks:
+        if t.status != "merged":
+            continue
+        finished = t.finished_at or ""
+        if not finished:
+            continue
+        try:
+            ts = datetime.fromisoformat(finished.replace("Z", "+00:00"))
+            age_days = (now - ts).total_seconds() / 86400
+        except (ValueError, TypeError):
+            continue
+        if age_days >= rules["archive_after_days"]:
+            src = Path(t.file_path)
+            dst = ARCHIVE_DIR / src.name
+            shutil.move(str(src), str(dst))
+            report["archived_tasks"] += 1
+
+    # ── 5. Clean up review queue for merged PRs ────────────
+    review_dir = FLEET_DIR / "review-queue"
+    if review_dir.exists():
+        # Reload tasks (some may have been archived)
+        active_ids = set()
+        if TASKS_DIR.exists():
+            for tf in TASKS_DIR.glob("*.json"):
+                try:
+                    active_ids.add(json.loads(tf.read_text()).get("id", ""))
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+        for review_file in review_dir.glob("*.md"):
+            task_id_match = re.match(
+                r"(.+?)-(completed|failed|blocked|decision)\.md",
+                review_file.name,
+            )
+            if task_id_match:
+                task_id = task_id_match.group(1)
+                # If manifest archived or missing from active, clean up
+                if task_id not in active_ids:
+                    review_file.unlink()
+                    report["cleaned_reviews"] += 1
+
+    # ── Print report ───────────────────────────────────────
+    print(f"[log-rotate] Done:")
+    print(f"  Logs gzipped:       {report['gzipped_logs']}")
+    print(f"  Old logs deleted:   {report['deleted_logs']}")
+    print(f"  Tasks archived:     {report['archived_tasks']}")
+    print(f"  daemon.log rotated: {'yes' if report['rotated_daemon'] else 'no'}")
+    print(f"  health.log rotated: {'yes' if report['rotated_health'] else 'no'}")
+    print(f"  Reviews cleaned:    {report['cleaned_reviews']}")
+
+
 # ── CLI Commands ─────────────────────────────────────────────
 
 def cmd_next(args):
@@ -1054,13 +1385,20 @@ def cmd_next_all(args):
 
 
 def cmd_plan(_args):
-    """Show the full execution plan."""
+    """Show the full execution plan with priority levels."""
     tasks = load_all_tasks()
     queued = get_queued(tasks)
     running = get_running(tasks)
     failed = get_retryable(tasks)
 
     print(f"Queued: {len(queued)}  Running: {len(running)}  Retryable: {len(failed)}")
+
+    # Show priority breakdown
+    p0 = [t for t in queued if priority_level(t.priority) == "P0"]
+    p1 = [t for t in queued if priority_level(t.priority) == "P1"]
+    p2 = [t for t in queued if priority_level(t.priority) == "P2"]
+    if queued:
+        print(f"Priority: P0={len(p0)} P1={len(p1)} P2={len(p2)}")
     print()
 
     if failed:
@@ -1082,17 +1420,16 @@ def cmd_plan(_args):
         mode = "parallel" if len(round_tasks) > 1 else "single"
         print(f"  Round {i + 1} ({mode}): {parallel_str}")
 
-        # Show why this order
+        # Show why this order with priority level
         for t in round_tasks:
-            reasons = []
+            reasons = [priority_level_icon(t.priority)]
             if t.depends_on:
                 reasons.append(f"after {', '.join(t.depends_on)}")
             if t.group:
                 reasons.append(f"group={t.group}")
             if t.topics:
                 reasons.append(f"topics={','.join(t.topics)}")
-            if reasons:
-                print(f"           └─ {t.slug}: {'; '.join(reasons)}")
+            print(f"           └─ {t.slug}: {'; '.join(reasons)}")
 
     print()
     print(f"Total: {sum(len(r) for r in plan)} tasks in {len(plan)} rounds")
@@ -1113,7 +1450,7 @@ def cmd_classify(_args):
         print(f"  topics:   {', '.join(t.topics)}")
         print(f"  group:    {t.group}")
         print(f"  deps:     {', '.join(t.depends_on) or 'none'}")
-        print(f"  priority: {t.priority}")
+        print(f"  priority: {t.priority} ({priority_level_icon(t.priority)})")
         print()
 
 
@@ -1281,7 +1618,8 @@ def cmd_eta(_args):
         except (ValueError, TypeError):
             elapsed = 0
         remaining = max(est - elapsed, 1)
-        print(f"  🔄 {t.slug:35s} {t.project:15s}  {format_eta(remaining)} remaining ({int(elapsed)}m elapsed of {format_eta(est)})")
+        plevel = priority_level_icon(t.priority)
+        print(f"  🔄 {plevel} {t.slug:30s} {t.project:15s}  {format_eta(remaining)} remaining ({int(elapsed)}m elapsed of {format_eta(est)})")
         cumulative = max(cumulative, remaining)
 
     by_project = {}
@@ -1297,7 +1635,8 @@ def cmd_eta(_args):
                 est = estimate_duration(t, tasks)
                 start_in = proj_wait
                 done_in = start_in + est
-                print(f"  📋 {t.slug:35s} {t.project:15s}  starts in {format_eta(start_in)}, done in {format_eta(done_in)} (est {format_eta(est)})")
+                plevel = priority_level_icon(t.priority)
+                print(f"  📋 {plevel} {t.slug:30s} {t.project:15s}  starts in {format_eta(start_in)}, done in {format_eta(done_in)} (est {format_eta(est)})")
                 proj_wait = done_in
 
     # Total queue drain time
@@ -1997,6 +2336,7 @@ COMMANDS = {
     "backlog-next":  cmd_backlog_next,
     "backlog-field": cmd_backlog_field,
     "cancel":        cmd_cancel,
+    "log-rotate":    cmd_log_rotate,
 }
 
 

@@ -16,7 +16,9 @@ API_PORT=8000
 WEB_PORT=3001
 CHECK_INTERVAL=60       # seconds between health checks
 LOG_SCAN_INTERVAL=300   # seconds between deep log scans (5 min)
+LOG_ROTATE_INTERVAL=86400  # seconds between log rotations (24h)
 LAST_LOG_SCAN=0
+LAST_LOG_ROTATE=0
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -292,7 +294,8 @@ maybe_create_worker_task() {
   "prompt": "Read $DEBUG_FILE for auto-detected bugs. Fix all bugs marked 🔴 NEW. For each bug: investigate the error, fix the root cause, add a defensive check to prevent it recurring, update the bug status in DEBUG_DETECTOR.md to ✅ FIXED. Run npm run build and npm test after each fix. Commit after each bug fix. Open PR when done.",
   "budget_usd": 10,
   "permission_mode": "dangerously-skip-permissions",
-  "tmux_session": "claude-auto-bugfix"
+  "tmux_session": "claude-auto-bugfix",
+  "priority": -1
 }
 TASK
         log "${BLUE}Auto-created worker task: $task_id ($new_count new bugs, $critical_count critical)${NC}"
@@ -511,6 +514,18 @@ while true; do
 
         # Send digest if new completed items since last digest
         send_digest_if_needed
+    fi
+
+    # ── Daily log rotation (every LOG_ROTATE_INTERVAL) ──
+    if (( now - LAST_LOG_ROTATE >= LOG_ROTATE_INTERVAL )); then
+        LAST_LOG_ROTATE=$now
+        FLEET_BRAIN="$HOME/Developer/claude-handler/fleet-brain.py"
+        if [[ -f "$FLEET_BRAIN" ]]; then
+            log "${BLUE}Running daily log rotation...${NC}"
+            python3 "$FLEET_BRAIN" log-rotate 2>&1 | while IFS= read -r line; do
+                log "  $line"
+            done
+        fi
     fi
 
     sleep "$CHECK_INTERVAL"
