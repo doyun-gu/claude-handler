@@ -173,7 +173,7 @@ try_auto_merge() {
 # Run a single task
 run_task() {
     local task_file="$1"
-    local task_id task_prompt project_path branch permission_mode subdir budget
+    local task_id task_prompt project_path branch permission_mode subdir estimated_time
 
     task_id=$(task_field "$task_file" id)
     task_prompt=$(task_field "$task_file" prompt)
@@ -181,7 +181,7 @@ run_task() {
     branch=$(task_field "$task_file" branch)
     permission_mode=$(task_field "$task_file" permission_mode "auto")
     subdir=$(task_field "$task_file" subdir "")
-    budget=$(task_field "$task_file" budget_usd "5")
+    estimated_time=$(task_field "$task_file" estimated_time "30 min")
     local base_branch
     base_branch=$(task_field "$task_file" base_branch "main")
 
@@ -191,7 +191,7 @@ run_task() {
     log "Starting task: $task_id"
     log "  Project: $project_path"
     log "  Branch:  $branch"
-    log "  Budget:  \$$budget"
+    log "  Est:     ${estimated_time}"
 
     # Update status
     update_task_status "$task_file" "running"
@@ -250,7 +250,7 @@ WORKER RULES:
    On completion, also set pr_url to the PR URL from gh pr create.
    On failure, also set error_message to a one-line summary of what went wrong.
 9. Use gstack skills as appropriate: /review before pushing, /qa if testing a web app.
-10. There are ${queued_count} more tasks in the queue after this one. Your budget is \$${budget}. Work efficiently — the daemon will start the next task when you finish.
+10. There are ${queued_count} more tasks in the queue after this one. Estimated time: ${estimated_time}. Work efficiently — the daemon will start the next task when you finish.
 11. PERFORMANCE: When running long computations (pytest suites, simulations, validation scripts), use run_in_background instead of waiting synchronously. Continue writing the next file, feature, or independent subtask while tests run. Check results before committing. Never block on a 5-minute test run when you have other work to do."
 
     # Determine permission flag
