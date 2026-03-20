@@ -223,6 +223,28 @@ When tasks complete, the daemon writes to `~/.claude-fleet/review-queue/`:
 
 Auto-mergeable tasks (slugs containing `bug`, `fix`, `docs`, `sync`, etc.) skip the review queue and merge directly.
 
+## Preview Isolation (Worktree)
+
+If your Worker runs a preview server, use a **git worktree** so the daemon can't overwrite it by switching branches:
+
+```bash
+# Create isolated worktree for preview
+cd ~/Developer/my-project
+git worktree add ~/Developer/my-project-preview <branch>
+cd ~/Developer/my-project-preview && npm run dev -- -p 3002
+```
+
+The daemon freely switches branches in the main repo. The worktree is a separate directory with its own checkout — completely isolated.
+
+## PR Merge Ordering
+
+When multiple worker PRs exist, merge them **one at a time** and rebase each onto updated main before merging. Never merge multiple PRs simultaneously — later PRs can overwrite earlier ones if they branch from the same base.
+
+```mermaid
+flowchart LR
+    A["Merge PR #1"] --> R["Rebase PR #2"] --> B["Merge PR #2"] --> R2["Rebase PR #3"] --> C["Merge PR #3"]
+```
+
 ## Post-Push Sync Protocol
 
 Every `git push` from the Commander must sync the Worker immediately. The Worker runs live services from local repos — stale code means a broken dashboard, preview, or API.
