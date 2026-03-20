@@ -266,6 +266,48 @@ REVIEW_EOF
     fi
 }
 
+# ─── Event freeze check ───────────────────────────────────────
+
+EVENTS_FILE="$FLEET_DIR/events.json"
+
+# Check if a project is currently in a freeze window
+# Returns 0 (true) if frozen, 1 (false) if not
+is_project_frozen() {
+    local project="$1"
+    if [[ ! -f "$EVENTS_FILE" ]]; then
+        return 1
+    fi
+    python3 -c "
+import json, sys
+from datetime import datetime, timezone
+
+project = sys.argv[1]
+try:
+    events = json.loads(open(sys.argv[2]).read())
+except:
+    sys.exit(1)
+
+now = datetime.now(timezone.utc)
+for e in events:
+    freeze_projects = e.get('freeze_projects', [])
+    if project not in freeze_projects:
+        continue
+    freeze_from = e.get('freeze_from', e.get('start', ''))
+    freeze_until = e.get('freeze_until', e.get('end', ''))
+    if not freeze_from or not freeze_until:
+        continue
+    try:
+        ff = datetime.fromisoformat(freeze_from.replace('Z', '+00:00'))
+        fu = datetime.fromisoformat(freeze_until.replace('Z', '+00:00'))
+        if ff <= now <= fu:
+            print(e.get('title', 'event'))
+            sys.exit(0)
+    except:
+        continue
+sys.exit(1)
+" "$project" "$EVENTS_FILE" 2>/dev/null
+}
+
 # ─── Track running projects (file-based for bash 3 compat) ───
 
 RUNNING_DIR="/tmp/fleet-running"
@@ -340,6 +382,13 @@ while true; do
 
         # Skip if this project already has a running task
         if is_project_running "$project"; then
+            continue
+        fi
+
+        # Skip if project is in a freeze window (events.json)
+        freeze_event=$(is_project_frozen "$project" 2>/dev/null)
+        if [[ $? -eq 0 ]]; then
+            warn "Skipping $project — frozen for: $freeze_event"
             continue
         fi
 

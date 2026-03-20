@@ -199,6 +199,134 @@ tr.queued td { color: var(--text-dim); }
 .toast-err { background: #3a1a1a; color: #b77; border: 1px solid #5a3a3a; }
 @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; } }
 
+/* ── Events bar ─────────────────────────── */
+.events-bar {
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.events-bar .events-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  flex-shrink: 0;
+}
+.event-chip {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 3px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.event-chip.status-upcoming { background: #2a2a2a; color: #888; }
+.event-chip.status-imminent { background: #3a3a1a; color: #dd9; border: 1px solid #554; }
+.event-chip.status-active { background: #3a1a1a; color: #e88; border: 1px solid #644; }
+.event-chip.status-past { background: #1a1a1a; color: #555; text-decoration: line-through; }
+.event-all-clear {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 3px;
+  background: #1a3a1a;
+  color: #7b7;
+  font-size: 12px;
+}
+.event-freeze-note {
+  font-size: 11px;
+  color: var(--orange);
+  margin-left: 4px;
+}
+.btn-add-event {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-family: inherit;
+}
+.btn-add-event:hover { background: var(--bg-hover); color: var(--text); }
+
+/* ── Event modal ───────────────────────── */
+.modal-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 500;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 20px;
+  width: 420px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal h2 {
+  font-size: 14px;
+  color: var(--text-bright);
+  margin-bottom: 16px;
+}
+.modal label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  margin-top: 12px;
+}
+.modal label:first-of-type { margin-top: 0; }
+.modal input[type="text"],
+.modal input[type="date"],
+.modal input[type="time"],
+.modal textarea {
+  width: 100%;
+  padding: 6px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 12px;
+}
+.modal textarea { resize: vertical; min-height: 40px; }
+.modal .row { display: flex; gap: 12px; }
+.modal .row > div { flex: 1; }
+.modal .checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+.modal .checkbox-group label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  text-transform: none;
+  font-size: 12px;
+  color: var(--text);
+  margin: 0;
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* ── Collapsible ────────────────────────── */
 .collapsed .section-body { display: none; }
 
@@ -241,6 +369,41 @@ tr.queued td { color: var(--text-dim); }
 <!-- Services -->
 <div class="section" id="svc-section">
   <div class="svc-bar" id="svc-bar">--</div>
+</div>
+
+<!-- Events -->
+<div class="events-bar" id="events-bar">
+  <span class="events-label">Events</span>
+  <span id="events-chips"></span>
+  <button class="btn-add-event" onclick="openEventModal()">+ Event</button>
+</div>
+
+<!-- Event Modal -->
+<div class="modal-overlay" id="event-modal">
+  <div class="modal">
+    <h2>Add Event</h2>
+    <label>Title</label>
+    <input type="text" id="evt-title" placeholder="e.g. Supervisor Meeting">
+    <div class="row">
+      <div><label>Date</label><input type="date" id="evt-date"></div>
+    </div>
+    <div class="row">
+      <div><label>Start time</label><input type="time" id="evt-start"></div>
+      <div><label>End time</label><input type="time" id="evt-end"></div>
+    </div>
+    <label>Freeze projects</label>
+    <div class="checkbox-group" id="evt-freeze-projects"></div>
+    <div class="row">
+      <div><label>Freeze from</label><input type="time" id="evt-freeze-from"></div>
+      <div><label>Freeze until</label><input type="time" id="evt-freeze-until"></div>
+    </div>
+    <label>Notes</label>
+    <textarea id="evt-notes" rows="2"></textarea>
+    <div class="modal-actions">
+      <button class="btn btn-dismiss" onclick="closeEventModal()">Cancel</button>
+      <button class="btn btn-merge" onclick="submitEvent()">Save</button>
+    </div>
+  </div>
 </div>
 
 <!-- Active Tasks -->
@@ -567,6 +730,145 @@ function renderBacklog(tasks) {
   el.innerHTML = html;
 }
 
+// ── Events ───────────────────────────────────
+
+function formatEventTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function renderEvents(events) {
+  const el = document.getElementById('events-chips');
+  // Filter out past events older than 1 hour
+  const now = Date.now();
+  const relevant = events.filter(function(e) {
+    if (e.status === 'past') {
+      const end = new Date(e.end).getTime();
+      return (now - end) < 3600000; // show past events for 1 hour
+    }
+    return true;
+  });
+
+  if (relevant.length === 0) {
+    el.innerHTML = '<span class="event-all-clear">All clear</span>';
+    return;
+  }
+
+  let html = '';
+  for (let i = 0; i < relevant.length; i++) {
+    const e = relevant[i];
+    const start = formatEventTime(e.start);
+    const end = formatEventTime(e.end);
+    let text = start + '–' + end + ' ' + esc(e.title);
+    if (e.freeze_from && e.status !== 'past') {
+      text += '<span class="event-freeze-note"> — Freeze from ' + formatEventTime(e.freeze_from) + '</span>';
+    }
+    html += '<span class="event-chip status-' + esc(e.status) + '">' + text + '</span> ';
+  }
+  el.innerHTML = html;
+}
+
+// ── Event modal ──────────────────────────────
+
+let projectsList = [];
+
+function openEventModal() {
+  document.getElementById('event-modal').classList.add('open');
+  // Pre-fill date with today
+  const today = new Date().toISOString().slice(0, 10);
+  document.getElementById('evt-date').value = today;
+  // Load projects for checkboxes
+  loadProjectCheckboxes();
+}
+
+function closeEventModal() {
+  document.getElementById('event-modal').classList.remove('open');
+}
+
+async function loadProjectCheckboxes() {
+  const el = document.getElementById('evt-freeze-projects');
+  if (projectsList.length > 0) {
+    renderProjectCheckboxes(el);
+    return;
+  }
+  try {
+    projectsList = await api('/api/projects');
+  } catch (e) {
+    projectsList = [];
+  }
+  renderProjectCheckboxes(el);
+}
+
+function renderProjectCheckboxes(el) {
+  if (projectsList.length === 0) {
+    el.innerHTML = '<span style="color:var(--text-dim);font-size:11px">No projects found</span>';
+    return;
+  }
+  let html = '';
+  for (let i = 0; i < projectsList.length; i++) {
+    const name = esc(projectsList[i].name);
+    html += '<label><input type="checkbox" value="' + name + '"> ' + name + '</label>';
+  }
+  el.innerHTML = html;
+}
+
+async function submitEvent() {
+  const title = document.getElementById('evt-title').value.trim();
+  const date = document.getElementById('evt-date').value;
+  const startTime = document.getElementById('evt-start').value;
+  const endTime = document.getElementById('evt-end').value;
+
+  if (!title || !date || !startTime || !endTime) {
+    toast('Fill in title, date, start, and end time', false);
+    return;
+  }
+
+  const start = date + 'T' + startTime + ':00Z';
+  const end = date + 'T' + endTime + ':00Z';
+
+  const freezeFrom = document.getElementById('evt-freeze-from').value;
+  const freezeUntil = document.getElementById('evt-freeze-until').value;
+  const notes = document.getElementById('evt-notes').value.trim();
+
+  // Collect checked projects
+  const checks = document.querySelectorAll('#evt-freeze-projects input:checked');
+  const freezeProjects = [];
+  for (let i = 0; i < checks.length; i++) {
+    freezeProjects.push(checks[i].value);
+  }
+
+  const body = {
+    title: title,
+    start: start,
+    end: end,
+    freeze_projects: freezeProjects,
+    freeze_from: freezeFrom ? date + 'T' + freezeFrom + ':00Z' : '',
+    freeze_until: freezeUntil ? date + 'T' + freezeUntil + ':00Z' : '',
+    notes: notes,
+  };
+
+  try {
+    const res = await apiPost('/api/events', body);
+    if (res.status === 'ok') {
+      toast('Event added: ' + title, true);
+      closeEventModal();
+      // Clear form
+      document.getElementById('evt-title').value = '';
+      document.getElementById('evt-start').value = '';
+      document.getElementById('evt-end').value = '';
+      document.getElementById('evt-freeze-from').value = '';
+      document.getElementById('evt-freeze-until').value = '';
+      document.getElementById('evt-notes').value = '';
+      refresh();
+    } else {
+      toast('Failed: ' + (res.message || ''), false);
+    }
+  } catch (e) {
+    toast('Error: ' + e.message, false);
+  }
+}
+
 function updateTimestamp() {
   const ago = Math.floor((Date.now() - lastFetch) / 1000);
   document.getElementById('updated').textContent = ago + 's ago';
@@ -576,12 +878,13 @@ function updateTimestamp() {
 
 async function refresh() {
   try {
-    const [sys, svcs, tasks, review, backlog] = await Promise.all([
+    const [sys, svcs, tasks, review, backlog, events] = await Promise.all([
       api('/api/system'),
       api('/api/services'),
       api('/api/tasks'),
       api('/api/review'),
       api('/api/backlog'),
+      api('/api/events'),
     ]);
 
     lastFetch = Date.now();
@@ -589,6 +892,7 @@ async function refresh() {
 
     renderSystem(sys);
     renderServices(svcs);
+    renderEvents(events);
     renderActiveTasks(tasks);
     renderCompleted(tasks);
     renderReview(review);
