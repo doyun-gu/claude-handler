@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#FFFFFF" media="(prefers-color-scheme: light)">
+  <title>Fleet Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-title">Fleet</div>
+      <div class="header-meta">
+        <span class="pulse"></span>
+        <span id="header-uptime">—</span>
+        <span id="header-time"></span>
+      </div>
+    </header>
+
+    <!-- Tabs -->
+    <nav class="tabs" role="tablist">
+      <button class="tab active" data-tab="overview" role="tab">Overview</button>
+      <button class="tab" data-tab="review" role="tab">Review <span class="badge" id="review-badge" style="display:none">0</span></button>
+      <button class="tab" data-tab="debug" role="tab">Debug</button>
+      <button class="tab" data-tab="knowledge" role="tab">Knowledge</button>
+      <button class="tab" data-tab="logs" role="tab">Logs</button>
+    </nav>
+
+    <!-- ── Overview Tab ─────────────────────────────────── -->
+    <div class="tab-content active" id="tab-overview">
+
+      <!-- System Metrics -->
+      <div class="section-title">System</div>
+      <div class="metrics-grid" id="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">CPU</div>
+          <div class="metric-value" id="cpu-value">—</div>
+          <div class="metric-sub" id="cpu-cores"></div>
+          <div class="progress-bar"><div class="progress-fill" id="cpu-bar" style="width:0;background:var(--blue)"></div></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">RAM</div>
+          <div class="metric-value" id="ram-value">—</div>
+          <div class="metric-sub" id="ram-sub"></div>
+          <div class="progress-bar"><div class="progress-fill" id="ram-bar" style="width:0;background:var(--purple)"></div></div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">Uptime</div>
+          <div class="metric-value" id="uptime-value">—</div>
+          <div class="metric-sub">Mac Mini</div>
+        </div>
+      </div>
+
+      <!-- Roles -->
+      <div class="section-title">Active Roles</div>
+      <div class="roles-grid" id="roles-grid"></div>
+
+      <!-- Services -->
+      <div class="section-title">Services</div>
+      <div id="services-list"></div>
+
+      <!-- Tasks -->
+      <div class="section-title">Tasks</div>
+      <div id="tasks-list"></div>
+
+      <!-- Projects -->
+      <div class="section-title">Projects</div>
+      <div class="projects-grid" id="projects-grid"></div>
+    </div>
+
+    <!-- ── Review Tab ───────────────────────────────────── -->
+    <div class="tab-content" id="tab-review">
+      <div class="section-title">Review Queue</div>
+      <div id="review-list"></div>
+    </div>
+
+    <!-- ── Debug Tab ────────────────────────────────────── -->
+    <div class="tab-content" id="tab-debug">
+      <div class="section-title">Detected Bugs</div>
+      <div id="debug-list"></div>
+    </div>
+
+    <!-- ── Knowledge Tab ────────────────────────────────── -->
+    <div class="tab-content" id="tab-knowledge">
+      <div class="section-title">Knowledge Base</div>
+      <div class="knowledge-filters" id="knowledge-filters">
+        <button class="filter-btn active" data-filter="all">All</button>
+        <button class="filter-btn" data-filter="DECISION">Decisions</button>
+        <button class="filter-btn" data-filter="TASK">Tasks</button>
+        <button class="filter-btn" data-filter="INSIGHT">Insights</button>
+        <button class="filter-btn" data-filter="BUG">Bugs</button>
+        <button class="filter-btn" data-filter="QUESTION">Questions</button>
+      </div>
+      <div id="knowledge-list"></div>
+    </div>
+
+    <!-- ── Logs Tab ─────────────────────────────────────── -->
+    <div class="tab-content" id="tab-logs">
+      <div class="section-title">Task Summaries</div>
+      <div id="logs-list"></div>
+    </div>
+
+  </div>
+
+  <!-- Toast -->
+  <div class="toast" id="toast"></div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
