@@ -60,6 +60,7 @@ class Task:
     dispatched_at: str = ""
     file_path: str = ""
     topics: list = field(default_factory=list)
+    base_branch: str = "main"
 
     @classmethod
     def from_file(cls, path: str) -> "Task":
@@ -81,6 +82,7 @@ class Task:
             finished_at=d.get("finished_at", ""),
             dispatched_at=d.get("dispatched_at", ""),
             file_path=str(path),
+            base_branch=d.get("base_branch", "main"),
         )
         t.topics = classify_topics(t.slug, t.prompt)
         if not t.group:
@@ -415,6 +417,8 @@ def find_mergeable_groups(tasks: list) -> list:
 
                 if not same_group:
                     continue  # different groups = don't merge
+                if t1.base_branch != t2.base_branch:
+                    continue  # different base branches = incompatible
                 if affinity < MIN_AFFINITY_TO_MERGE:
                     continue  # not similar enough
 
@@ -996,6 +1000,77 @@ def cmd_count_status(args):
     print(count)
 
 
+def cmd_cancel(args):
+    """Cancel a running or queued task.
+
+    Usage: queue-manager.py cancel <slug-or-id>
+    Finds the task, updates status to 'cancelled', and kills the tmux session
+    if the task was running.
+    """
+    if not args:
+        print("Usage: cancel <slug-or-id>", file=sys.stderr)
+        sys.exit(1)
+    target = args[0]
+    tasks = load_all_tasks()
+
+    found = None
+    for t in tasks:
+        if t.slug == target or t.id == target:
+            found = t
+            break
+
+    if not found:
+        print(f"Task not found: {target}", file=sys.stderr)
+        sys.exit(1)
+
+    if found.status not in ("queued", "running"):
+        print(f"Task {found.slug} is {found.status} — can only cancel queued/running tasks",
+              file=sys.stderr)
+        sys.exit(1)
+
+    was_running = found.status == "running"
+
+    # Update manifest
+    with open(found.file_path, "r+") as f:
+        data = json.load(f)
+        data["status"] = "cancelled"
+        data["finished_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        data["error_message"] = "Cancelled by user"
+        f.seek(0)
+        json.dump(data, f, indent=2)
+        f.truncate()
+
+    print(f"Cancelled: {found.slug} ({found.id})")
+
+    # Kill tmux session if running
+    if was_running:
+        import subprocess
+        # Try to find tmux session by task slug
+        tmux_candidates = [
+            f"claude-{found.slug[:30]}",
+            f"claude-{found.id}",
+        ]
+        for session_name in tmux_candidates:
+            result = subprocess.run(
+                ["tmux", "kill-session", "-t", session_name],
+                capture_output=True, timeout=5,
+            )
+            if result.returncode == 0:
+                print(f"Killed tmux session: {session_name}")
+                break
+
+        # Also clean up the PID file
+        pid_file = Path("/tmp/fleet-running") / f"{found.project}.pid"
+        if pid_file.exists():
+            try:
+                pid = int(pid_file.read_text().strip())
+                subprocess.run(["kill", str(pid)], capture_output=True, timeout=5)
+                pid_file.unlink()
+                print(f"Killed process {pid}")
+            except (ValueError, OSError):
+                pass
+
+
 def cmd_backlog_next(args):
     """Find the next backlog task not already dispatched.
 
@@ -1102,9 +1177,11 @@ if __name__ == "__main__":
         cmd_backlog_next(args)
     elif cmd == "backlog-field":
         cmd_backlog_field(args)
+    elif cmd == "cancel":
+        cmd_cancel(args)
     else:
         print(f"Unknown command: {cmd}", file=sys.stderr)
-        print("Usage: queue-manager.py [next|next-all|plan|classify|merge|"
+        print("Usage: queue-manager.py [next|next-all|plan|classify|merge|cancel|"
               "task-field|update-status|count-status|backlog-next|"
               "backlog-field|eta|watchdog]",
               file=sys.stderr)
