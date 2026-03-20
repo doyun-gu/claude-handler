@@ -4,16 +4,14 @@
 
 Every conversation you have in Claude Desktop can feed directly into the development pipeline. No information is lost between tools.
 
-```
-Claude Desktop (chat)
-  ↓ structured log blocks
-.context/conversations/*.md
-  ↓ /conversation-log command
-Claude Code processes into:
-  → dispatch tasks (Mac Mini Worker)
-  → decision records
-  → bug tracker entries
-  → project context
+```mermaid
+flowchart TD
+    A["Claude Desktop (chat)"] -->|"structured log blocks"| B[".context/conversations/*.md"]
+    B -->|"/conversation-log command"| C["Claude Code processes into:"]
+    C --> D["Dispatch tasks (Mac Mini Worker)"]
+    C --> E["Decision records"]
+    C --> F["Bug tracker entries"]
+    C --> G["Project context"]
 ```
 
 ## Setup (5 minutes, per project)
