@@ -88,22 +88,22 @@ notify_task_complete() {
     local task_file="$FLEET_DIR/tasks/${task_id}.json"
     [[ ! -f "$task_file" ]] && return
 
-    local slug project branch pr_url summary_excerpt
-    slug=$(python3 -c "import json; print(json.load(open('$task_file')).get('slug','?'))")
-    project=$(python3 -c "import json; print(json.load(open('$task_file')).get('project_name','?'))")
-    branch=$(python3 -c "import json; print(json.load(open('$task_file')).get('branch','?'))")
+    # Read all fields in single Python call (was 4 separate calls)
+    local slug project branch project_path summary_excerpt
+    eval "$(python3 -c "
+import json, shlex
+d = json.load(open('$task_file'))
+for k, var in [('slug','slug'),('project_name','project'),('branch','branch'),('project_path','project_path')]:
+    print(f'{var}={shlex.quote(str(d.get(k,\"?\")))}')
+")"
 
-    # Try to get PR URL and summary
     local summary_file="$FLEET_DIR/logs/${task_id}.summary.md"
     summary_excerpt=""
     if [[ -f "$summary_file" ]]; then
         summary_excerpt=$(head -20 "$summary_file" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/$/\<br\>/')
     fi
 
-    # Get commit count
     local commit_info=""
-    local project_path
-    project_path=$(python3 -c "import json; print(json.load(open('$task_file')).get('project_path',''))")
     if [[ -d "$project_path" ]]; then
         local count
         count=$(cd "$project_path" && git log --oneline main.."$branch" 2>/dev/null | wc -l | tr -d ' ')
@@ -149,9 +149,14 @@ notify_task_failed() {
     local task_file="$FLEET_DIR/tasks/${task_id}.json"
     [[ ! -f "$task_file" ]] && return
 
+    # Single Python call (was 2 separate calls)
     local slug project
-    slug=$(python3 -c "import json; print(json.load(open('$task_file')).get('slug','?'))")
-    project=$(python3 -c "import json; print(json.load(open('$task_file')).get('project_name','?'))")
+    eval "$(python3 -c "
+import json, shlex
+d = json.load(open('$task_file'))
+print(f'slug={shlex.quote(d.get(\"slug\",\"?\"))}')
+print(f'project={shlex.quote(d.get(\"project_name\",\"?\"))}')
+")"
 
     local log_tail=""
     if [[ -f "$FLEET_DIR/logs/${task_id}.log" ]]; then
@@ -309,22 +314,29 @@ process_reply_actions() {
     for f in "$actions_dir"/*.json; do
         [[ -f "$f" ]] || continue
 
+        # Single Python call (was 3 separate calls)
         local action_type task_slug description
-        action_type=$(python3 -c "import json; print(json.load(open('$f')).get('type',''))")
-        task_slug=$(python3 -c "import json; print(json.load(open('$f')).get('task_slug',''))")
-        description=$(python3 -c "import json; print(json.load(open('$f')).get('description',''))")
+        eval "$(python3 -c "
+import json, shlex
+d = json.load(open('$f'))
+for k, var in [('type','action_type'),('task_slug','task_slug'),('description','description')]:
+    print(f'{var}={shlex.quote(d.get(k,\"\"))}')
+")"
 
         case "$action_type" in
             merge)
                 echo "[reply] Merging PR for $task_slug"
                 # Find the task and its branch, merge via gh
                 for tf in "$FLEET_DIR"/tasks/*.json; do
-                    local s
-                    s=$(python3 -c "import json; d=json.load(open('$tf')); print(d.get('slug',''))" 2>/dev/null)
+                    local s branch project_path
+                    eval "$(python3 -c "
+import json, shlex
+d = json.load(open('$tf'))
+print(f's={shlex.quote(d.get(\"slug\",\"\"))}')
+print(f'branch={shlex.quote(d.get(\"branch\",\"\"))}')
+print(f'project_path={shlex.quote(d.get(\"project_path\",\"\"))}')
+" 2>/dev/null)"
                     if [[ "$s" == "$task_slug" ]]; then
-                        local branch project_path
-                        branch=$(python3 -c "import json; print(json.load(open('$tf')).get('branch',''))")
-                        project_path=$(python3 -c "import json; print(json.load(open('$tf')).get('project_path',''))")
                         cd "$project_path" && gh pr merge --squash --delete-branch "$(gh pr list --head "$branch" --json number -q '.[0].number')" 2>/dev/null
                         send_email "🔀 Merged: $task_slug" "<p style='font-size:13px;color:#166534;'>PR for <b>$task_slug</b> has been merged to main.</p>"
                         break

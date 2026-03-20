@@ -104,7 +104,7 @@ log_bug() {
     init_debug_file
 
     # Check if this bug is already logged (avoid duplicates)
-    if grep -q "slug: $slug" "$DEBUG_FILE" 2>/dev/null; then
+    if grep -qF "slug: $slug" "$DEBUG_FILE" 2>/dev/null; then
         # Update the "last seen" timestamp
         local temp_file="${DEBUG_FILE}.tmp"
         python3 -c "
@@ -303,18 +303,18 @@ TASK
 PREVIEW_PORT=3002
 
 check_preview_server() {
-    local latest_branch=""
-    for f in "$FLEET_DIR"/tasks/*.json; do
-        [[ -f "$f" ]] || continue
-        local info
-        info=$(python3 -c "
-import json
-d = json.load(open('$f'))
-if d.get('status') == 'completed' and d.get('project_name') == 'DPSpice-com':
-    print(d.get('branch',''))
-" 2>/dev/null)
-        [[ -n "$info" ]] && latest_branch="$info"
-    done
+    # Single Python call to find latest completed DPSpice branch (was N calls)
+    local latest_branch
+    latest_branch=$(python3 -c "
+import json, glob
+for f in glob.glob('$FLEET_DIR/tasks/*.json'):
+    try:
+        d = json.load(open(f))
+        if d.get('status') == 'completed' and d.get('project_name') == 'DPSpice-com':
+            b = d.get('branch','')
+            if b: print(b)
+    except: pass
+" 2>/dev/null | tail -1)
     [[ -z "$latest_branch" ]] && return
 
     local running_branch=""
@@ -385,8 +385,8 @@ send_digest_if_needed() {
             [[ -f "$f" ]] || continue
             local fname type priority icon badge_bg badge_color
             fname=$(basename "$f" .md)
-            type=$(grep 'type:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
-            priority=$(grep 'priority:' "$f" 2>/dev/null | head -1 | awk '{print $2}')
+            # Single awk pass instead of 2 greps per file
+            eval "$(awk '/^type:/{print "type="$2} /^priority:/{print "priority="$2}' "$f" 2>/dev/null)"
 
             case "$type" in
                 completed) icon="✅"; badge_bg="#DCFCE7"; badge_color="#166534" ;;

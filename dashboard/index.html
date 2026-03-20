@@ -720,13 +720,14 @@ const expandedPanels = new Set();
 const sectionViewMode = {}; // sectionId -> 'cards' | 'table'
 
 // ── Tab Navigation ─────────────────────
+function activateTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
+  document.getElementById('tab-' + name).classList.add('active');
+}
 document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-    tab.classList.add('active');
-    document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
-  });
+  tab.addEventListener('click', () => activateTab(tab.dataset.tab));
 });
 
 // ── API Helpers ────────────────────────
@@ -761,10 +762,10 @@ function shortTime(iso) {
   return d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
 }
 
+const _escDiv = document.createElement('div');
 function escHtml(s) {
-  const div = document.createElement('div');
-  div.textContent = s || '';
-  return div.innerHTML;
+  _escDiv.textContent = s || '';
+  return _escDiv.innerHTML;
 }
 
 // ── Render: System Metrics ─────────────
@@ -836,10 +837,10 @@ async function loadTasks() {
 // ── Render: Review Queue ───────────────
 async function loadReview() {
   reviewData = await api('/api/review');
-  const processingItems = reviewData.filter(r => r.review_category === 'processing');
-  const actionItems = reviewData.filter(r => r.review_category === 'action_required');
-  const lowItems = reviewData.filter(r => r.review_category === 'auto_mergeable');
-  const dismissedItems = reviewData.filter(r => r.review_category === 'dismissed');
+  // Single-pass categorization (was 4 separate filter calls)
+  const groups = {processing:[], action_required:[], auto_mergeable:[], dismissed:[]};
+  for (const r of reviewData) groups[r.review_category]?.push(r) ?? groups.action_required.push(r);
+  const {processing: processingItems, action_required: actionItems, auto_mergeable: lowItems, dismissed: dismissedItems} = groups;
 
   // Update badge
   const badge = document.getElementById('review-badge');
@@ -1092,12 +1093,7 @@ function toggleSection(header) {
   body.classList.toggle('collapsed');
 }
 
-function switchToReview() {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.querySelector('[data-tab="review"]').classList.add('active');
-  document.getElementById('tab-review').classList.add('active');
-}
+function switchToReview() { activateTab('review'); }
 
 // ── Actions ────────────────────────────
 async function doAction(type, slug, description) {
@@ -1128,11 +1124,7 @@ async function viewSummary(taskId) {
   document.getElementById('log-viewer-title').textContent = 'Summary: ' + taskId;
   document.getElementById('log-viewer-content').textContent = data.summary || data.log_tail || 'No log available';
   container.style.display = 'block';
-  // Switch to logs tab
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-  document.querySelector('[data-tab="logs"]').classList.add('active');
-  document.getElementById('tab-logs').classList.add('active');
+  activateTab('logs');
   container.scrollIntoView({behavior: 'smooth'});
 }
 
