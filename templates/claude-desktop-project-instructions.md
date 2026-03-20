@@ -68,7 +68,7 @@ So every conversation you have here can directly feed into the development pipel
 ## Setup Steps
 
 1. Open Claude Desktop
-2. Go to your project (e.g., "DPSpice")
+2. Go to your project
 3. Click the project settings / custom instructions
 4. Paste the instructions above (replace {PROJECT_NAME})
 5. Start chatting — Claude will auto-classify important items

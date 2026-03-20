@@ -578,13 +578,20 @@ async def get_services():
 
 @app.get("/api/debug")
 async def get_debug():
-    """Parse DEBUG_DETECTOR.md from DPSpice project."""
+    """Parse DEBUG_DETECTOR.md from registered projects."""
     bugs = []
-    # Find DEBUG_DETECTOR.md
-    search_paths = [
-        Path.home() / "Developer" / "dynamic-phasors" / "DPSpice-com" / "DEBUG_DETECTOR.md",
-        Path.home() / "Developer" / "DPSpice-com" / "DEBUG_DETECTOR.md",
-    ]
+    # Search registered projects for DEBUG_DETECTOR.md
+    search_paths = []
+    projects_file = FLEET_DIR / "projects.json"
+    if projects_file.exists():
+        try:
+            projects = json.loads(projects_file.read_text())
+            for proj in projects:
+                path = proj.get("path", "")
+                if path:
+                    search_paths.append(Path(path) / "DEBUG_DETECTOR.md")
+        except (json.JSONDecodeError, KeyError):
+            pass
     debug_file = None
     for p in search_paths:
         if p.exists():

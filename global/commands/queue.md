@@ -1,6 +1,6 @@
-# /queue — Mac Mini Server Dashboard
+# /queue — Worker Server Dashboard
 
-You are the Commander (MacBook Pro). This command shows a real-time dashboard of everything running on the Mac Mini.
+You are the Commander. This command shows a real-time dashboard of everything running on the Worker machine.
 
 ## Steps
 
@@ -58,14 +58,10 @@ ls ~/.claude-fleet/review-queue/*.md 2>/dev/null | while read f; do
 done
 
 echo '===SERVICES==='
-curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 http://localhost:8000/health 2>/dev/null; echo ' api:8000'
-curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 http://localhost:3001 2>/dev/null; echo ' web:3001'
+curl -s -o /dev/null -w '%{http_code}' --connect-timeout 2 http://localhost:3003/health 2>/dev/null; echo ' dashboard:3003'
 
 echo '===DISK==='
 df -h / | tail -1 | awk '{print \$4, \$5}'
-
-echo '===DEBUG==='
-grep -c 'status: 🔴 NEW' ~/Developer/dynamic-phasors/DPSpice-com/DEBUG_DETECTOR.md 2>/dev/null || echo 0
 "
 ```
 
@@ -75,7 +71,7 @@ Format the output as a polished dashboard. Use box-drawing characters and alignm
 
 ```
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  ⚡ MAC MINI SERVER                     {date} {time}
+  WORKER SERVER                           {date} {time}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
   SYSTEM
@@ -87,23 +83,20 @@ Format the output as a polished dashboard. Use box-drawing characters and alignm
 
   SERVICES
   ────────
-  API   http://{worker_ip}:8000    {✅ 200 | ❌ DOWN}
-  Web   http://{worker_ip}:3001    {✅ 200 | ❌ DOWN}
-  Health checker                     {✅ running | ❌ stopped}
-  Worker daemon                      {✅ running | ❌ stopped}
+  Dashboard  http://{worker_ip}:3003  {ok/down}
+  Worker daemon                        {ok/down}
 
   TASKS
   ─────
   {status_icon} {slug:30s}  {project:15s}  {duration/ETA}
-  {status_icon} {slug:30s}  {project:15s}  {duration/ETA}
   ...
 
   Status icons:
-    🔄 running  →  show elapsed time: "running 23m"
-    📋 queued   →  show position: "next" / "2nd in queue"
-    ✅ done     →  show duration: "done in 15m"
-    ❌ failed   →  show "FAILED — check log"
-    ⏸️  blocked  →  show reason
+    running   show elapsed time: "running 23m"
+    queued    show position: "next" / "2nd in queue"
+    done      show duration: "done in 15m"
+    failed    show "FAILED — check log"
+    blocked   show reason
 
   CLAUDE PROCESSES
   ────────────────
@@ -113,10 +106,6 @@ Format the output as a polished dashboard. Use box-drawing characters and alignm
   ────────────────────────────
   {icon} {filename}  ({type}, {priority})
   ...
-
-  AUTO-DETECTED BUGS: {count} new
-  ─────────────────────────────
-  (from DEBUG_DETECTOR.md)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Actions: /worker-review  /worker-status {slug}  /dispatch
@@ -142,15 +131,13 @@ For completed tasks:
 ### Step 5: Offer actions based on state
 
 Based on what's happening:
-- If review queue has items: "→ Run `/worker-review` to review {count} completed tasks"
-- If running task exists: "→ Run `/worker-status {slug}` for live output"
-- If queue is empty and no running task: "→ Mac Mini is idle. Run `/dispatch` to send work."
-- If bugs detected: "→ {count} auto-detected bugs in DEBUG_DETECTOR.md"
-- If a service is down: "⚠️ {service} is DOWN — health checker should auto-restart within 60s"
+- If review queue has items: "Run `/worker-review` to review {count} completed tasks"
+- If running task exists: "Run `/worker-status {slug}` for live output"
+- If queue is empty and no running task: "Worker is idle. Run `/dispatch` to send work."
+- If a service is down: "Warning: {service} is DOWN — supervisor should auto-restart within 30s"
 
 ## Quick Variants
 
 - `/queue` — Full dashboard (default)
 - `/queue tasks` — Just the task list (no system info)
 - `/queue services` — Just service health
-- `/queue bugs` — Show DEBUG_DETECTOR.md contents

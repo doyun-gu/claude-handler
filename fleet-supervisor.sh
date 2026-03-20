@@ -5,8 +5,7 @@
 set -uo pipefail
 export PATH=/opt/homebrew/bin:$HOME/.local/bin:/usr/local/bin:$PATH
 
-HANDLER="$HOME/Developer/claude-handler"
-DPSPICE="$HOME/Developer/dynamic-phasors/DPSpice-com"
+HANDLER="$(cd "$(dirname "$0")" && pwd)"
 LOG_FILE="$HOME/.claude-fleet/logs/supervisor.log"
 mkdir -p "$(dirname "$LOG_FILE")"
 
@@ -32,9 +31,6 @@ log "Fleet supervisor started (PID $$)"
 while true; do
     ensure_session "worker-daemon" \
         "cd $HANDLER && export PATH=/opt/homebrew/bin:\$HOME/.local/bin:\$PATH && ./worker-daemon.sh 2>&1 | tee -a $HOME/.claude-fleet/logs/worker-daemon.log"
-
-    ensure_session "demo-health" \
-        "cd $HANDLER && export PATH=/opt/homebrew/bin:\$HOME/.local/bin:\$PATH && ./demo-healthcheck.sh 2>&1 | tee -a $HOME/.claude-fleet/logs/demo-health.log"
 
     # Dashboard — only if api.py exists
     if [[ -f "$HANDLER/dashboard/api.py" ]]; then

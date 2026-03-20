@@ -39,7 +39,7 @@ If a rule here conflicts with a default behavior, this file wins.
 - UI/UX changes — user must see visually
 - New features
 - Large refactors (>500 lines changed in source code)
-- User-facing content (personal website, marketing pages)
+- User-facing content (marketing pages, public docs)
 - Architecture decisions with tradeoffs
 - Irreversible actions (data deletion, schema changes)
 
@@ -65,18 +65,14 @@ The fleet manager has full authority over operational decisions:
 | Task blocked | Escalate | Yes (email) |
 | Unknown error | Diagnose, dispatch fix, log to knowledge base | No |
 
-## Demo Server Rules
+## Service Port Conventions
 
 | Port | Role | Stability |
 |---|---|---|
-| 3001 | Dev / unstable | Can break |
-| 3002 | **Stable demo** (shown to people) | Must ALWAYS work |
-| 3003 | Fleet dashboard | Should work |
-| 8000 | API backend | Must ALWAYS work |
+| 3003 | Fleet dashboard | Should always work |
+| 8000+ | User project APIs | Configured per project |
 
-- Never deploy to :3002 without: build pass, all tests pass, 5-min smoke test on :3001.
-- During meeting freeze windows: no merges, no deploys, no restarts on DPSpice services.
-- Worker can run non-DPSpice tasks during freeze windows.
+Users can define their own services in `~/.claude-fleet/startup-hooks.sh`.
 
 ## Notification Rules
 
@@ -84,13 +80,6 @@ The fleet manager has full authority over operational decisions:
 - **Hourly digest max** for completions — never individual emails per task.
 - **Dashboard at :3003** is the primary notification channel, not email.
 - **Suppress:** task completed, bug auto-fixed, merge confirmations, queue updates.
-
-## Backup Rules
-
-- **my-world** is the disaster recovery repo.
-- After meaningful fleet changes, queue a my-world-backup-sync task.
-- Batch syncs — one per session, not per change.
-- Never commit secrets to my-world. Use templates with placeholders.
 
 ## Token Efficiency
 
@@ -109,15 +98,7 @@ When a project has no queued tasks but the daemon is running other projects:
   - Documentation freshness (.context/ files up to date?)
   - Stale branch cleanup
 - Only queue P2 backlog — never auto-generate P0 work.
-- Respect demo freeze windows (no DPSpice deploys during meetings).
-- The goal: Mac Mini should always be working on something useful, never idle.
-
-## Demo Freeze Windows
-
-- Before meetings/demos: freeze DPSpice deploys 30 min before through 15 min after.
-- During freeze: Worker can still run non-DPSpice tasks (claude-handler, my-world, JULY, etc.)
-- DPSpice docs/research/non-deploy work is OK during freeze.
-- If critical bug found on :3002 before meeting: fix and re-test immediately.
+- The goal: the Worker should always be working on something useful, never idle.
 
 ## Maintenance Cadence
 

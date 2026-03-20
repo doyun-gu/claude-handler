@@ -92,12 +92,7 @@ This scans all conversation logs and:
 
 This system works for ANY project. The `/architecture` command auto-creates the `.context/conversations/` directory when setting up a project.
 
-### Projects that use this:
-- **DPSpice-com** — product decisions, feature planning, supervisor feedback
-- **claude-handler** — framework improvements, command design
-- **my-world** — environment setup decisions
-- **project-JULY** — firmware/PCB design decisions
-- **study-with-claude** — learning notes, concept explanations
+Add your projects to `~/.claude-fleet/projects.json` and this system will work for all of them.
 
 ## Automation Ideas (Future)
 

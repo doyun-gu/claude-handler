@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
+<!--
+  Fleet Supervisor LaunchAgent
+  NOTE: This is a TEMPLATE. install.sh will generate the real plist
+  with $HOME paths resolved for your user. Do not load this file directly.
+-->
 <dict>
     <key>Label</key>
     <string>com.fleet.supervisor</string>
@@ -8,7 +13,7 @@
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>/Users/doyungu/Developer/claude-handler/fleet-supervisor.sh</string>
+        <string>__HANDLER_DIR__/fleet-supervisor.sh</string>
     </array>
 
     <key>RunAtLoad</key>
@@ -21,17 +26,17 @@
     <integer>10</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/doyungu/.claude-fleet/logs/supervisor-stdout.log</string>
+    <string>__HOME__/.claude-fleet/logs/supervisor-stdout.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/doyungu/.claude-fleet/logs/supervisor-stderr.log</string>
+    <string>__HOME__/.claude-fleet/logs/supervisor-stderr.log</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
         <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
         <key>HOME</key>
-        <string>/Users/doyungu</string>
+        <string>__HOME__</string>
     </dict>
 </dict>
 </plist>

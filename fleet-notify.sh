@@ -35,7 +35,7 @@ send_email() {
         --mail-rcpt "$TO_EMAIL" \
         --user "${GMAIL_USER}:${GMAIL_APP_PASSWORD}" \
         -T - << MAIL_EOF
-From: DPSpice Fleet <$GMAIL_USER>
+From: Fleet Worker <$GMAIL_USER>
 To: $TO_EMAIL
 Subject: $subject
 Content-Type: text/html; charset=utf-8
@@ -52,7 +52,7 @@ X-Fleet-Task: ${TASK_ID:-none}
 <div style="padding:20px 24px;border-bottom:1px solid #F1F5F9;">
   <div style="display:flex;align-items:center;gap:8px;">
     <span style="font-size:14px;">⚡</span>
-    <span style="font-size:15px;font-weight:600;color:#0F172A;">DPSpice Fleet</span>
+    <span style="font-size:15px;font-weight:600;color:#0F172A;">Fleet Worker</span>
     <span style="margin-left:auto;font-size:12px;color:#94A3B8;">$(date '+%b %d, %H:%M')</span>
   </div>
 </div>
@@ -77,10 +77,6 @@ $body
 <!-- Links -->
 <div style="text-align:center;padding:8px 0;">
   <a href="http://${WORKER_IP}:3003" style="color:#3B82F6;text-decoration:none;font-size:12px;font-weight:500;">Dashboard</a>
-  <span style="color:#CBD5E1;margin:0 8px;">·</span>
-  <a href="http://${WORKER_IP}:3001/app" style="color:#3B82F6;text-decoration:none;font-size:12px;font-weight:500;">Demo</a>
-  <span style="color:#CBD5E1;margin:0 8px;">·</span>
-  <a href="http://${WORKER_IP}:3002/app" style="color:#3B82F6;text-decoration:none;font-size:12px;font-weight:500;">Preview</a>
 </div>
 
 </div>
