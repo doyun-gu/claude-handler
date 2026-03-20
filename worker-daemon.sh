@@ -45,54 +45,22 @@ if [[ ! -x "$CLAUDE_BIN" ]]; then
     exit 1
 fi
 
-# Find the next queued task (oldest first)
-next_queued_task() {
-    local oldest_file=""
-    local oldest_time=999999999999
+# Queue manager path — all JSON operations go through this
+QM="$(cd "$(dirname "$0")" && pwd)/queue-manager.py"
 
-    for f in "$TASKS_DIR"/*.json; do
-        [[ -f "$f" ]] || continue
-        local status
-        status=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-        if [[ "$status" == "queued" ]]; then
-            local mtime
-            mtime=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)
-            if (( mtime < oldest_time )); then
-                oldest_time=$mtime
-                oldest_file=$f
-            fi
-        fi
-    done
-    echo "$oldest_file"
+# Read a field from a task manifest (replaces inline python3 -c calls)
+task_field() {
+    python3 "$QM" task-field "$@"
 }
 
 # Count tasks by status
 count_tasks() {
-    local status="$1"
-    local count=0
-    for f in "$TASKS_DIR"/*.json; do
-        [[ -f "$f" ]] || continue
-        local s
-        s=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-        [[ "$s" == "$status" ]] && ((count++))
-    done
-    echo "$count"
+    python3 "$QM" count-status "$1"
 }
 
-# Update task status
+# Update task status (with automatic timestamp handling)
 update_task_status() {
-    local task_file="$1"
-    local new_status="$2"
-    python3 -c "
-import json
-f = open('$task_file', 'r+')
-d = json.load(f)
-d['status'] = '$new_status'
-$(if [[ "$new_status" == "running" ]]; then echo "import datetime; d['started_at'] = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')"; fi)
-$(if [[ "$new_status" == "completed" || "$new_status" == "failed" ]]; then echo "import datetime; d['finished_at'] = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')"; fi)
-f.seek(0); json.dump(d, f, indent=2); f.truncate()
-f.close()
-"
+    python3 "$QM" update-status "$@"
 }
 
 # Run a single task
@@ -100,15 +68,15 @@ run_task() {
     local task_file="$1"
     local task_id task_prompt project_path branch permission_mode subdir budget
 
-    task_id=$(python3 -c "import json; print(json.load(open('$task_file'))['id'])")
-    task_prompt=$(python3 -c "import json; print(json.load(open('$task_file'))['prompt'])")
-    project_path=$(python3 -c "import json; print(json.load(open('$task_file'))['project_path'])")
-    branch=$(python3 -c "import json; print(json.load(open('$task_file'))['branch'])")
-    permission_mode=$(python3 -c "import json; print(json.load(open('$task_file')).get('permission_mode','auto'))")
-    subdir=$(python3 -c "import json; print(json.load(open('$task_file')).get('subdir','') or '')")
-    budget=$(python3 -c "import json; print(json.load(open('$task_file')).get('budget_usd', 5))")
+    task_id=$(task_field "$task_file" id)
+    task_prompt=$(task_field "$task_file" prompt)
+    project_path=$(task_field "$task_file" project_path)
+    branch=$(task_field "$task_file" branch)
+    permission_mode=$(task_field "$task_file" permission_mode "auto")
+    subdir=$(task_field "$task_file" subdir "")
+    budget=$(task_field "$task_file" budget_usd "5")
     local base_branch
-    base_branch=$(python3 -c "import json; print(json.load(open('$task_file')).get('base_branch','main'))")
+    base_branch=$(task_field "$task_file" base_branch "main")
 
     local work_dir="$project_path"
     [[ -n "$subdir" ]] && work_dir="$project_path/$subdir"
@@ -172,8 +140,10 @@ WORKER RULES:
    Then STOP — do not spin.
 7. Write a completion summary to ~/.claude-fleet/logs/${task_id}.summary.md when finished.
 8. Update ~/.claude-fleet/tasks/${task_id}.json status to completed or failed when done.
+   On completion, also set pr_url to the PR URL from gh pr create.
+   On failure, also set error_message to a one-line summary of what went wrong.
 9. Use gstack skills as appropriate: /review before pushing, /qa if testing a web app.
-10. There are ${queued_count} more tasks in the queue after this one. Work efficiently — the daemon will start the next task when you finish."
+10. There are ${queued_count} more tasks in the queue after this one. Your budget is \$${budget}. Work efficiently — the daemon will start the next task when you finish."
 
     # Determine permission flag
     local perm_flag=""
@@ -187,19 +157,50 @@ WORKER RULES:
     # Run Claude
     local log_file="$LOGS_DIR/${task_id}.log"
 
-    "$CLAUDE_BIN" -p \
-        $perm_flag \
-        --max-turns 200 \
-        --append-system-prompt "$worker_prompt" \
-        "$task_prompt" \
-        2>&1 | tee "$log_file"
-
-    local exit_code=${PIPESTATUS[0]}
+    # Use script(1) for unbuffered log capture on macOS.
+    # Without this, tee buffers output and logs are 0 bytes until completion.
+    if command -v script &>/dev/null && [[ "$(uname)" == "Darwin" ]]; then
+        script -q "$log_file" \
+            "$CLAUDE_BIN" -p \
+            $perm_flag \
+            --max-turns 200 \
+            --append-system-prompt "$worker_prompt" \
+            "$task_prompt" \
+            2>&1
+        local exit_code=$?
+    elif command -v stdbuf &>/dev/null; then
+        # Linux: use stdbuf for line-buffered output
+        stdbuf -oL "$CLAUDE_BIN" -p \
+            $perm_flag \
+            --max-turns 200 \
+            --append-system-prompt "$worker_prompt" \
+            "$task_prompt" \
+            2>&1 | tee "$log_file"
+        local exit_code=${PIPESTATUS[0]}
+    else
+        # Fallback: unbuffered tee (logs may be delayed)
+        "$CLAUDE_BIN" -p \
+            $perm_flag \
+            --max-turns 200 \
+            --append-system-prompt "$worker_prompt" \
+            "$task_prompt" \
+            2>&1 | tee "$log_file"
+        local exit_code=${PIPESTATUS[0]}
+    fi
 
     # Check result
     if [[ $exit_code -eq 0 ]]; then
         ok "Task $task_id completed successfully"
-        update_task_status "$task_file" "completed"
+
+        # Capture PR URL if Claude created one
+        local pr_url=""
+        pr_url=$(cd "$project_path" && gh pr list --head "$branch" --json url -q '.[0].url' 2>/dev/null || echo "")
+
+        if [[ -n "$pr_url" ]]; then
+            update_task_status "$task_file" "completed" "pr_url=$pr_url"
+        else
+            update_task_status "$task_file" "completed"
+        fi
 
         # Email notification
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-complete "$task_id" 2>/dev/null &
@@ -225,7 +226,14 @@ Check the PR and summary:
 REVIEW_EOF
     else
         err "Task $task_id failed with exit code $exit_code"
-        update_task_status "$task_file" "failed"
+
+        # Capture last error line from log as error_message
+        local error_msg="exit code $exit_code"
+        if [[ -f "$log_file" && -s "$log_file" ]]; then
+            error_msg=$(tail -5 "$log_file" 2>/dev/null | grep -i "error\|fail\|exception" | tail -1 | head -c 200)
+            [[ -z "$error_msg" ]] && error_msg="exit code $exit_code"
+        fi
+        update_task_status "$task_file" "failed" "error_message=$error_msg"
 
         # Email notification
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-failed "$task_id" 2>/dev/null &
@@ -274,7 +282,7 @@ is_project_running() {
 run_task_async() {
     local task_file="$1"
     local project
-    project=$(python3 -c "import json; print(json.load(open('$task_file')).get('project_name','unknown'))")
+    project=$(task_field "$task_file" project_name "unknown")
 
     (
         run_task "$task_file" || err "run_task crashed for $(basename "$task_file")"
@@ -317,10 +325,10 @@ while true; do
     # Find queued tasks, one per project
     for f in "$TASKS_DIR"/*.json; do
         [[ -f "$f" ]] || continue
-        status=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
+        status=$(task_field "$f" status "" 2>/dev/null)
         [[ "$status" != "queued" ]] && continue
 
-        project=$(python3 -c "import json; print(json.load(open('$f')).get('project_name','unknown'))" 2>/dev/null)
+        project=$(task_field "$f" project_name "unknown" 2>/dev/null)
 
         # Skip if this project already has a running task
         if is_project_running "$project"; then
@@ -340,9 +348,67 @@ while true; do
 
     # Poll interval: faster when tasks are active
     running=$(count_running)
+    queued=$(count_tasks "queued")
     if (( running > 0 )); then
         sleep 10
+        IDLE_SINCE=""
+    elif (( queued > 0 )); then
+        sleep 5
+        IDLE_SINCE=""
     else
-        sleep "$POLL_INTERVAL"
+        # No tasks running or queued — check backlog
+        if [[ -z "$IDLE_SINCE" ]]; then
+            IDLE_SINCE=$(date +%s)
+            log "Queue empty. Idle timer started."
+        fi
+
+        idle_secs=$(( $(date +%s) - IDLE_SINCE ))
+
+        if (( idle_secs >= 600 )); then
+            # 10 minutes idle — pick from backlog
+            BACKLOG_FILE="$FLEET_DIR/backlog.json"
+            if [[ -f "$BACKLOG_FILE" ]]; then
+                NEXT_BACKLOG=$(python3 "$QM" backlog-next "$BACKLOG_FILE" 2>/dev/null)
+
+                if [[ -n "$NEXT_BACKLOG" ]]; then
+                    # Create task manifest from backlog item
+                    local bl_slug=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field slug)
+                    local bl_project=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field project_name)
+                    local bl_path=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field project_path)
+                    local bl_prompt_json=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field prompt "" --json)
+                    local bl_budget=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field budget_usd 5)
+                    local bl_id="backlog-$(date +%Y%m%d-%H%M%S)-${bl_slug}"
+                    local bl_branch="worker/backlog-${bl_slug}-$(date +%Y%m%d)"
+
+                    log "${GREEN}Backlog auto-dispatch: ${bl_slug} (${bl_project})${NC}"
+
+                    cat > "$TASKS_DIR/${bl_id}.json" << TASKEOF
+{
+  "id": "${bl_id}",
+  "slug": "${bl_slug}",
+  "branch": "${bl_branch}",
+  "project_name": "${bl_project}",
+  "project_path": "${bl_path}",
+  "dispatched_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "status": "queued",
+  "base_branch": "main",
+  "prompt": ${bl_prompt_json},
+  "budget_usd": ${bl_budget},
+  "permission_mode": "dangerously-skip-permissions",
+  "source": "backlog"
+}
+TASKEOF
+
+                    IDLE_SINCE=""  # Reset idle timer
+                else
+                    log "Backlog empty — all items already dispatched."
+                    sleep "$POLL_INTERVAL"
+                fi
+            else
+                sleep "$POLL_INTERVAL"
+            fi
+        else
+            sleep "$POLL_INTERVAL"
+        fi
     fi
 done
