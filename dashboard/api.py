@@ -181,8 +181,8 @@ async def get_system():
     }
 
 
-@app.get("/api/tasks")
-async def get_tasks():
+def _load_all_tasks() -> list[dict]:
+    """Load all task manifests from disk."""
     tasks = []
     if not TASKS_DIR.exists():
         return tasks
@@ -193,6 +193,191 @@ async def get_tasks():
         except (json.JSONDecodeError, OSError):
             pass
     return tasks
+
+
+def _period_cutoff(period: str) -> Optional[float]:
+    """Return epoch cutoff for a period filter, or None for 'all'."""
+    now = time.time()
+    if period == "today":
+        # Start of today (local time)
+        today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        return today_start.timestamp()
+    elif period == "7d":
+        return now - 7 * 86400
+    return None
+
+
+def _task_end_time(task: dict) -> Optional[float]:
+    """Get the end timestamp of a task as epoch seconds."""
+    for field in ("finished_at", "merged_at"):
+        val = task.get(field)
+        if val:
+            try:
+                return datetime.fromisoformat(val.replace("Z", "+00:00")).timestamp()
+            except (ValueError, AttributeError):
+                pass
+    return None
+
+
+@app.get("/api/tasks")
+async def get_tasks(period: Optional[str] = Query(None)):
+    """Get tasks, optionally filtered by period: today, 7d, all."""
+    tasks = _load_all_tasks()
+    if not period or period == "all":
+        return tasks
+    cutoff = _period_cutoff(period)
+    if cutoff is None:
+        return tasks
+    filtered = []
+    for t in tasks:
+        status = t.get("status", "")
+        # Always include active tasks
+        if status in ("running", "queued"):
+            filtered.append(t)
+            continue
+        # Filter completed/merged/failed by end time
+        end = _task_end_time(t)
+        if end and end >= cutoff:
+            filtered.append(t)
+    return filtered
+
+
+@app.get("/api/tasks/summary")
+async def get_tasks_summary():
+    """Summary stats for the completed tasks dashboard card."""
+    tasks = _load_all_tasks()
+    now = time.time()
+    today_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+
+    today_completed = 0
+    merged_count = 0
+    projects = set()
+    total_seconds = 0
+
+    for t in tasks:
+        status = t.get("status", "")
+        end = _task_end_time(t)
+        if not end or end < today_start:
+            continue
+        if status in ("completed", "merged", "failed"):
+            today_completed += 1
+        if status == "merged":
+            merged_count += 1
+        proj = t.get("project_name")
+        if proj:
+            projects.add(proj)
+        # Compute duration
+        started = t.get("started_at")
+        finished = t.get("finished_at")
+        if started and finished:
+            try:
+                s = datetime.fromisoformat(started.replace("Z", "+00:00")).timestamp()
+                e = datetime.fromisoformat(finished.replace("Z", "+00:00")).timestamp()
+                total_seconds += max(0, e - s)
+            except (ValueError, AttributeError):
+                pass
+
+    # Format total duration
+    total_min = int(total_seconds // 60)
+    if total_min >= 60:
+        hours = total_min // 60
+        mins = total_min % 60
+        total_duration = f"{hours}h {mins}m"
+    else:
+        total_duration = f"{total_min}m"
+
+    return {
+        "today_count": today_completed,
+        "merged_count": merged_count,
+        "projects_touched": len(projects),
+        "project_names": sorted(projects),
+        "total_duration": total_duration,
+    }
+
+
+def _extract_recommendation(summary_text: str) -> str:
+    """Extract a recommendation from the Worker summary markdown."""
+    if not summary_text:
+        return ""
+    # Look for recommendation/decision/approach sections
+    patterns = [
+        r"(?:^|\n)#+\s*(?:Recommendation|Decision|Approach|Summary)\s*\n([\s\S]*?)(?=\n#+|\Z)",
+        r"(?:^|\n)\*\*(?:Recommendation|Decision|Approach)\*\*[:\s]*(.*?)(?:\n\n|\Z)",
+    ]
+    for pat in patterns:
+        m = re.search(pat, summary_text, re.IGNORECASE)
+        if m:
+            text = m.group(1).strip()
+            # Limit to first 500 chars
+            return text[:500] if len(text) > 500 else text
+    # Fallback: first non-heading paragraph
+    lines = summary_text.strip().split("\n")
+    for line in lines:
+        line = line.strip()
+        if line and not line.startswith("#") and not line.startswith("---"):
+            return line[:300]
+    return ""
+
+
+def _extract_preview_url(task_data: dict, summary_text: str) -> str:
+    """Extract a preview URL from the task data or summary."""
+    # Check task manifest
+    url = task_data.get("preview_url", "")
+    if url:
+        return url
+    # Check summary for URLs
+    if summary_text:
+        m = re.search(r"https?://\S+(?:localhost|preview|vercel|netlify)\S*", summary_text)
+        if m:
+            return m.group(0).rstrip(")")
+    return ""
+
+
+def _get_diff_stat(branch: str, project_path: str) -> Optional[dict]:
+    """Get diff stat (files changed, additions, deletions) for a branch's PR."""
+    if not branch or not project_path:
+        return None
+    try:
+        # Use gh to get PR diff stats
+        result = subprocess.run(
+            ["git", "diff", "--stat", "main..." + branch],
+            capture_output=True, text=True, timeout=10,
+            cwd=project_path,
+        )
+        if result.returncode != 0:
+            return None
+        # Parse the summary line: " 5 files changed, 120 insertions(+), 30 deletions(-)"
+        lines = result.stdout.strip().split("\n")
+        if not lines:
+            return None
+        # Get changed file names (all lines except the last summary)
+        changed_files = []
+        for line in lines[:-1]:
+            fname = line.split("|")[0].strip()
+            if fname:
+                changed_files.append(fname)
+        # Parse summary
+        summary = lines[-1] if lines else ""
+        files_changed = 0
+        additions = 0
+        deletions = 0
+        m = re.search(r"(\d+)\s+files?\s+changed", summary)
+        if m:
+            files_changed = int(m.group(1))
+        m = re.search(r"(\d+)\s+insertions?", summary)
+        if m:
+            additions = int(m.group(1))
+        m = re.search(r"(\d+)\s+deletions?", summary)
+        if m:
+            deletions = int(m.group(1))
+        return {
+            "files_changed": files_changed,
+            "additions": additions,
+            "deletions": deletions,
+            "changed_files": changed_files[:20],  # Limit to 20 files
+        }
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return None
 
 
 @app.get("/api/review")
@@ -216,15 +401,30 @@ async def get_review(category: Optional[str] = Query(None)):
             summary_path = LOGS_DIR / f"{task_id}.summary.md"
             if summary_path.exists():
                 summary_text = summary_path.read_text()
-            # Get branch from task manifest
+            # Get branch and project_path from task manifest
             branch = ""
+            project_path = ""
+            pr_url = ""
+            task_data = {}
             task_file = TASKS_DIR / f"{task_id}.json"
             if task_file.exists():
                 try:
                     task_data = json.loads(task_file.read_text())
                     branch = task_data.get("branch", "")
+                    project_path = task_data.get("project_path", "")
+                    pr_url = task_data.get("pr_url", "")
                 except (json.JSONDecodeError, OSError):
                     pass
+
+            # Extract recommendation from summary
+            recommendation = _extract_recommendation(summary_text)
+
+            # Extract preview URL
+            preview_url = _extract_preview_url(task_data, summary_text)
+
+            # Get diff stats
+            diff_stat = _get_diff_stat(branch, project_path)
+
             items.append({
                 "filename": f.name,
                 "meta": meta,
@@ -233,6 +433,10 @@ async def get_review(category: Optional[str] = Query(None)):
                 "review_category": cat,
                 "reason": review_reason(meta, cat, f.name),
                 "branch": branch,
+                "recommendation": recommendation,
+                "preview_url": preview_url,
+                "pr_url": pr_url,
+                "diff_stat": diff_stat,
             })
         except OSError:
             pass
