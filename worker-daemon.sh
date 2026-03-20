@@ -47,36 +47,30 @@ fi
 
 # Find the next queued task (oldest first)
 next_queued_task() {
-    local oldest_file=""
-    local oldest_time=999999999999
-
-    for f in "$TASKS_DIR"/*.json; do
-        [[ -f "$f" ]] || continue
-        local status
-        status=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-        if [[ "$status" == "queued" ]]; then
-            local mtime
-            mtime=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)
-            if (( mtime < oldest_time )); then
-                oldest_time=$mtime
-                oldest_file=$f
-            fi
-        fi
-    done
-    echo "$oldest_file"
+    # Single Python call to find oldest queued task (was one Python per file)
+    python3 -c "
+import json, glob, os
+queued = []
+for f in glob.glob('$TASKS_DIR/*.json'):
+    try:
+        if json.load(open(f)).get('status') == 'queued':
+            queued.append((os.path.getmtime(f), f))
+    except: pass
+if queued:
+    queued.sort()
+    print(queued[0][1])
+" 2>/dev/null
 }
 
-# Count tasks by status
+# Count tasks by status (single Python call instead of one per file)
 count_tasks() {
     local status="$1"
-    local count=0
-    for f in "$TASKS_DIR"/*.json; do
-        [[ -f "$f" ]] || continue
-        local s
-        s=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-        [[ "$s" == "$status" ]] && ((count++))
-    done
-    echo "$count"
+    python3 -c "
+import json, glob
+count = sum(1 for f in glob.glob('$TASKS_DIR/*.json')
+            if json.load(open(f)).get('status') == '$status')
+print(count)
+" 2>/dev/null || echo 0
 }
 
 # Update task status
@@ -100,15 +94,19 @@ run_task() {
     local task_file="$1"
     local task_id task_prompt project_path branch permission_mode subdir budget
 
-    task_id=$(python3 -c "import json; print(json.load(open('$task_file'))['id'])")
-    task_prompt=$(python3 -c "import json; print(json.load(open('$task_file'))['prompt'])")
-    project_path=$(python3 -c "import json; print(json.load(open('$task_file'))['project_path'])")
-    branch=$(python3 -c "import json; print(json.load(open('$task_file'))['branch'])")
-    permission_mode=$(python3 -c "import json; print(json.load(open('$task_file')).get('permission_mode','auto'))")
-    subdir=$(python3 -c "import json; print(json.load(open('$task_file')).get('subdir','') or '')")
-    budget=$(python3 -c "import json; print(json.load(open('$task_file')).get('budget_usd', 5))")
-    local base_branch
-    base_branch=$(python3 -c "import json; print(json.load(open('$task_file')).get('base_branch','main'))")
+    # Read all fields in a single Python call (was 8 separate processes)
+    eval "$(python3 -c "
+import json, shlex
+d = json.load(open('$task_file'))
+for k, default in [('id',''), ('prompt',''), ('project_path',''), ('branch',''),
+                    ('permission_mode','auto'), ('subdir',''), ('budget_usd',5), ('base_branch','main')]:
+    v = d.get(k, default) or default
+    var = {'id':'task_id','prompt':'task_prompt','project_path':'project_path','branch':'branch',
+           'permission_mode':'permission_mode','subdir':'subdir','budget_usd':'budget',
+           'base_branch':'base_branch'}[k]
+    print(f'{var}={shlex.quote(str(v))}')
+")"
+    local base_branch="${base_branch}"
 
     local work_dir="$project_path"
     [[ -n "$subdir" ]] && work_dir="$project_path/$subdir"
@@ -175,14 +173,7 @@ WORKER RULES:
 9. Use gstack skills as appropriate: /review before pushing, /qa if testing a web app.
 10. There are ${queued_count} more tasks in the queue after this one. Work efficiently — the daemon will start the next task when you finish."
 
-    # Determine permission flag
-    local perm_flag=""
-    if [[ "$permission_mode" == "dangerously-skip-permissions" ]]; then
-        perm_flag="--dangerously-skip-permissions"
-    else
-        # Default to dangerously-skip-permissions for autonomous operation
-        perm_flag="--dangerously-skip-permissions"
-    fi
+    local perm_flag="--dangerously-skip-permissions"
 
     # Run Claude
     local log_file="$LOGS_DIR/${task_id}.log"
@@ -314,24 +305,23 @@ echo ""
 while true; do
     launched=0
 
-    # Find queued tasks, one per project
-    for f in "$TASKS_DIR"/*.json; do
-        [[ -f "$f" ]] || continue
-        status=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-        [[ "$status" != "queued" ]] && continue
-
-        project=$(python3 -c "import json; print(json.load(open('$f')).get('project_name','unknown'))" 2>/dev/null)
-
-        # Skip if this project already has a running task
-        if is_project_running "$project"; then
-            continue
-        fi
-
+    # Find queued tasks, one per project (single Python call for all files)
+    while IFS='|' read -r task_file project; do
+        [[ -z "$task_file" ]] && continue
+        if is_project_running "$project"; then continue; fi
         queued=$(count_tasks "queued")
         log "Launching task for $project ($queued in queue)"
-        run_task_async "$f"
+        run_task_async "$task_file"
         launched=$((launched + 1))
-    done
+    done < <(python3 -c "
+import json, glob
+for f in glob.glob('$TASKS_DIR/*.json'):
+    try:
+        d = json.load(open(f))
+        if d.get('status') == 'queued':
+            print(f + '|' + d.get('project_name','unknown'))
+    except: pass
+" 2>/dev/null)
 
     if (( launched > 0 )); then
         running=$(count_running)
