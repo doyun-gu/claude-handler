@@ -1,0 +1,23 @@
+# Gmail Configuration for Fleet Notifications
+# ─────────────────────────────────────────────────────
+# Copy to ~/.claude-fleet/secrets/gmail.conf
+#
+# To set up:
+# 1. Enable 2FA on your Google account
+# 2. Go to https://myaccount.google.com/apppasswords
+# 3. Create an app password for "Mail"
+# 4. Paste the 16-character password below (no spaces)
+#
+# Notifications are sent for: task failures, blocked tasks,
+# digest summaries. Completed tasks are logged but not emailed
+# unless they're part of a digest.
+#
+# Reply-to-action: reply to any fleet email with:
+#   merge           — Squash merge the PR
+#   fix: [desc]     — Create a new fix task
+#   skip            — Close PR, move on
+#   queue: [desc]   — Queue a new task
+
+GMAIL_USER=you@gmail.com
+GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+GMAIL_TO=you@gmail.com

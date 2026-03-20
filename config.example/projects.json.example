@@ -1,0 +1,33 @@
+{
+  "projects": [
+    {
+      "name": "my-web-app",
+      "path": "~/Developer/my-web-app",
+      "repo": "https://github.com/your-username/my-web-app.git",
+      "description": "Main web application",
+      "default_branch": "main",
+      "services": [
+        {
+          "name": "api",
+          "port": 8000,
+          "start_cmd": ".venv/bin/python -m uvicorn api.main:app --host 0.0.0.0 --port 8000",
+          "health_url": "http://localhost:8000/health"
+        },
+        {
+          "name": "web",
+          "port": 3000,
+          "start_cmd": "npm run dev",
+          "health_url": "http://localhost:3000"
+        }
+      ]
+    },
+    {
+      "name": "my-cli-tool",
+      "path": "~/Developer/my-cli-tool",
+      "repo": "https://github.com/your-username/my-cli-tool.git",
+      "description": "CLI tool — no services, just Worker tasks",
+      "default_branch": "main",
+      "services": []
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+# Machine Role Configuration
+# ─────────────────────────────────────────────────────
+# This file determines how Claude Code behaves on this machine.
+# Copy to ~/.claude-fleet/machine-role.conf and set your role.
+#
+# Roles:
+#   commander  — Interactive machine (e.g. MacBook Pro, laptop).
+#                You talk to Claude, plan, dispatch tasks, review PRs.
+#                Has access to: /dispatch, /worker-status, /worker-review, /fleet
+#
+#   worker     — Autonomous machine (e.g. Mac Mini, server, desktop).
+#                Runs a daemon that picks up tasks and executes them
+#                without human interaction. Opens PRs for review.
+#                Never pushes to main directly.
+#
+# Only one machine should be "commander" at a time.
+# You can have multiple workers.
+
+MACHINE_ROLE=commander
