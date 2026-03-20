@@ -340,9 +340,93 @@ while true; do
 
     # Poll interval: faster when tasks are active
     running=$(count_running)
+    queued=$(count_tasks "queued")
     if (( running > 0 )); then
         sleep 10
+        IDLE_SINCE=""
+    elif (( queued > 0 )); then
+        sleep 5
+        IDLE_SINCE=""
     else
-        sleep "$POLL_INTERVAL"
+        # No tasks running or queued — check backlog
+        if [[ -z "$IDLE_SINCE" ]]; then
+            IDLE_SINCE=$(date +%s)
+            log "Queue empty. Idle timer started."
+        fi
+
+        idle_secs=$(( $(date +%s) - IDLE_SINCE ))
+
+        if (( idle_secs >= 600 )); then
+            # 10 minutes idle — pick from backlog
+            BACKLOG_FILE="$FLEET_DIR/backlog.json"
+            if [[ -f "$BACKLOG_FILE" ]]; then
+                NEXT_BACKLOG=$(python3 -c "
+import json, os
+bl = json.load(open('$BACKLOG_FILE'))
+tasks_dir = os.path.expanduser('~/.claude-fleet/tasks')
+
+# Find highest priority task not already dispatched
+for task in sorted(bl.get('tasks', []), key=lambda t: t.get('priority', 99)):
+    slug = task.get('slug', '')
+    # Check if already dispatched (any task file contains this slug)
+    already = False
+    for f in os.listdir(tasks_dir):
+        if slug in f:
+            already = True
+            break
+    # Also check by matching existing task slugs
+    for f in os.listdir(tasks_dir):
+        if f.endswith('.json'):
+            try:
+                d = json.load(open(os.path.join(tasks_dir, f)))
+                if d.get('slug') == slug:
+                    already = True
+                    break
+            except: pass
+    if not already:
+        print(json.dumps(task))
+        break
+" 2>/dev/null)
+
+                if [[ -n "$NEXT_BACKLOG" ]]; then
+                    # Create task manifest from backlog item
+                    local bl_slug=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin)['slug'])")
+                    local bl_project=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin)['project_name'])")
+                    local bl_path=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin)['project_path'])")
+                    local bl_prompt=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin)['prompt'])")
+                    local bl_budget=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin).get('budget_usd', 5))")
+                    local bl_id="backlog-$(date +%Y%m%d-%H%M%S)-${bl_slug}"
+                    local bl_branch="worker/backlog-${bl_slug}-$(date +%Y%m%d)"
+
+                    log "${GREEN}Backlog auto-dispatch: ${bl_slug} (${bl_project})${NC}"
+
+                    cat > "$TASKS_DIR/${bl_id}.json" << TASKEOF
+{
+  "id": "${bl_id}",
+  "slug": "${bl_slug}",
+  "branch": "${bl_branch}",
+  "project_name": "${bl_project}",
+  "project_path": "${bl_path}",
+  "dispatched_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "status": "queued",
+  "base_branch": "main",
+  "prompt": $(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['prompt']))"),
+  "budget_usd": ${bl_budget},
+  "permission_mode": "dangerously-skip-permissions",
+  "source": "backlog"
+}
+TASKEOF
+
+                    IDLE_SINCE=""  # Reset idle timer
+                else
+                    log "Backlog empty — all items already dispatched."
+                    sleep "$POLL_INTERVAL"
+                fi
+            else
+                sleep "$POLL_INTERVAL"
+            fi
+        else
+            sleep "$POLL_INTERVAL"
+        fi
     fi
 done
