@@ -87,14 +87,69 @@ body {
   color: var(--text-dim);
 }
 
-/* ── System bar ─────────────────────────── */
-.sys-bar {
+/* ── Machine card ──────────────────────── */
+.machine-card {
+  padding: 10px 20px;
+  border-left: 3px solid var(--green);
+  background: var(--bg-card);
+  border-radius: 0 4px 4px 0;
+}
+.machine-card.unhealthy { border-left-color: var(--red); }
+.machine-row {
   display: flex;
-  gap: 24px;
+  align-items: center;
+  gap: 16px;
   flex-wrap: wrap;
   font-size: 13px;
 }
-.sys-bar .val { color: var(--text-bright); }
+.machine-row + .machine-row { margin-top: 4px; }
+.machine-name {
+  font-weight: 600;
+  color: var(--text-bright);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.machine-name .online-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--green);
+  display: inline-block;
+  flex-shrink: 0;
+}
+.machine-name .online-dot.offline { background: var(--text-dim); }
+.machine-chip { color: var(--text-dim); }
+.machine-stat { white-space: nowrap; }
+.machine-stat .val { color: var(--text-bright); }
+.machine-stat .sub { color: var(--text-dim); font-size: 12px; }
+.role-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #1a3a4a;
+  color: #7bc;
+}
+.role-badge.commander { background: #2a2a1a; color: #aa8; }
+.commander-line {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #2a2a2a;
+}
+.commander-line .online-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  display: inline-block;
+}
 
 /* ── Services bar ───────────────────────── */
 .svc-bar {
@@ -390,10 +445,17 @@ tr.queued td { color: var(--text-dim); }
   /* Hide columns on mobile */
   .hide-mobile { display: none; }
 
-  /* 1. System stats — stack vertically (1 column) */
-  .sys-bar {
+  /* 1. Machine card — stack vertically on mobile */
+  .machine-card { padding: 8px 12px; }
+  .machine-row {
     flex-direction: column;
     gap: 4px;
+    align-items: flex-start;
+  }
+  .commander-line {
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-start;
   }
 
   /* 2. Services/quick links — wrap to 2 per row */
@@ -499,13 +561,33 @@ tr.queued td { color: var(--text-dim); }
   </div>
 </div>
 
-<!-- System -->
+<!-- System / Machine Identity -->
 <div class="section" id="sys-section">
-  <div class="sys-bar" id="sys-bar">
-    <span>CPU: <span class="val" id="sys-cpu">--</span></span>
-    <span>RAM: <span class="val" id="sys-ram">--</span></span>
-    <span>Disk: <span class="val" id="sys-disk">--</span></span>
-    <span>Uptime: <span class="val" id="sys-uptime">--</span></span>
+  <div class="machine-card" id="machine-card">
+    <div class="machine-row" id="machine-row-1">
+      <span class="machine-name">
+        <span class="online-dot" id="machine-dot"></span>
+        <span id="machine-name">--</span>
+      </span>
+      <span class="machine-chip" id="machine-chip"></span>
+      <span class="machine-stat">CPU: <span class="val" id="sys-cpu">--</span></span>
+      <span class="machine-stat">RAM: <span class="val" id="sys-ram">--</span></span>
+      <span class="machine-stat">Disk: <span class="val" id="sys-disk">--</span></span>
+      <span class="machine-stat">Uptime: <span class="val" id="sys-uptime">--</span></span>
+    </div>
+    <div class="machine-row" id="machine-row-2">
+      <span class="role-badge" id="machine-role">--</span>
+      <span class="machine-stat" id="machine-os"></span>
+      <span class="machine-stat"><span class="val" id="machine-cores">--</span> <span class="sub">cores</span></span>
+      <span class="machine-stat"><span class="val" id="sys-ram-pct">--</span> <span class="sub">RAM used</span></span>
+      <span class="machine-stat"><span class="val" id="sys-disk-pct">--</span> <span class="sub">disk used</span></span>
+    </div>
+    <div class="commander-line" id="commander-line" style="display:none">
+      <span class="online-dot"></span>
+      <span>MacBook Pro</span>
+      <span class="role-badge commander">Commander</span>
+      <span id="commander-last-seen">--</span>
+    </div>
   </div>
 </div>
 
@@ -819,19 +901,66 @@ function rerender() {
 // ── Renderers ───────────────────────────────
 
 function renderSystem(data) {
+  // Row 1: Machine name + chip + main metrics
   document.getElementById('sys-cpu').textContent = data.cpu_percent + '%';
   document.getElementById('sys-ram').textContent = data.ram_used_gb + '/' + data.ram_total_gb + ' GB';
   document.getElementById('sys-disk').textContent = (data.disk_free_gb || '--') + ' GB free';
   document.getElementById('sys-uptime').textContent = data.uptime || '--';
+
+  // Machine identity
+  var name = data.machine_name || 'unknown';
+  // Prettify common hostnames
+  if (name.toLowerCase().indexOf('mac-mini') >= 0 || name.toLowerCase().indexOf('macmini') >= 0) {
+    name = 'Mac mini';
+  } else if (name.toLowerCase().indexOf('macbook') >= 0) {
+    name = 'MacBook Pro';
+  }
+  document.getElementById('machine-name').textContent = name;
+
+  var chip = data.chip || '';
+  document.getElementById('machine-chip').textContent = chip;
+
+  // Row 2: Role + OS + core count + usage percentages
+  var roleEl = document.getElementById('machine-role');
+  var role = data.role || 'unknown';
+  roleEl.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+  roleEl.className = 'role-badge' + (role === 'commander' ? ' commander' : '');
+
+  document.getElementById('machine-os').textContent = data.os_version || '';
+  document.getElementById('machine-cores').textContent = data.core_count || '--';
+  document.getElementById('sys-ram-pct').textContent = (data.ram_percent || '--') + '%';
+  document.getElementById('sys-disk-pct').textContent = (data.disk_percent || '--') + '%';
+
+  // Commander last seen
+  var cmdLine = document.getElementById('commander-line');
+  if (data.commander_last_seen) {
+    cmdLine.style.display = '';
+    document.getElementById('commander-last-seen').textContent = 'Last seen: ' + data.commander_last_seen;
+  } else {
+    cmdLine.style.display = 'none';
+  }
+
+  // Health: card border color (green if online, check services later)
+  var card = document.getElementById('machine-card');
+  card.className = 'machine-card';  // reset to healthy
 }
 
 function renderServices(svcs) {
   const bar = document.getElementById('svc-bar');
+  let anyDown = false;
   bar.innerHTML = svcs.map(function(s) {
     const up = s.status === 'up';
+    if (!up) anyDown = true;
     const label = s.port ? s.name + ':' + s.port : s.name;
     return '<span>' + esc(label) + ' <span class="svc-dot ' + (up ? 'up' : 'down') + '"></span></span>';
   }).join('');
+  // Update machine card health
+  var card = document.getElementById('machine-card');
+  if (anyDown) {
+    card.classList.add('unhealthy');
+  } else {
+    card.classList.remove('unhealthy');
+  }
 }
 
 function renderActiveTasks(tasks) {
