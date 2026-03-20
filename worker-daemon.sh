@@ -45,54 +45,22 @@ if [[ ! -x "$CLAUDE_BIN" ]]; then
     exit 1
 fi
 
-# Find the next queued task (oldest first)
-next_queued_task() {
-    local oldest_file=""
-    local oldest_time=999999999999
+# Queue manager path — all JSON operations go through this
+QM="$(cd "$(dirname "$0")" && pwd)/queue-manager.py"
 
-    for f in "$TASKS_DIR"/*.json; do
-        [[ -f "$f" ]] || continue
-        local status
-        status=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-        if [[ "$status" == "queued" ]]; then
-            local mtime
-            mtime=$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null)
-            if (( mtime < oldest_time )); then
-                oldest_time=$mtime
-                oldest_file=$f
-            fi
-        fi
-    done
-    echo "$oldest_file"
+# Read a field from a task manifest (replaces inline python3 -c calls)
+task_field() {
+    python3 "$QM" task-field "$@"
 }
 
 # Count tasks by status
 count_tasks() {
-    local status="$1"
-    local count=0
-    for f in "$TASKS_DIR"/*.json; do
-        [[ -f "$f" ]] || continue
-        local s
-        s=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
-        [[ "$s" == "$status" ]] && ((count++))
-    done
-    echo "$count"
+    python3 "$QM" count-status "$1"
 }
 
-# Update task status
+# Update task status (with automatic timestamp handling)
 update_task_status() {
-    local task_file="$1"
-    local new_status="$2"
-    python3 -c "
-import json
-f = open('$task_file', 'r+')
-d = json.load(f)
-d['status'] = '$new_status'
-$(if [[ "$new_status" == "running" ]]; then echo "import datetime; d['started_at'] = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')"; fi)
-$(if [[ "$new_status" == "completed" || "$new_status" == "failed" ]]; then echo "import datetime; d['finished_at'] = datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')"; fi)
-f.seek(0); json.dump(d, f, indent=2); f.truncate()
-f.close()
-"
+    python3 "$QM" update-status "$@"
 }
 
 # Run a single task
@@ -100,15 +68,15 @@ run_task() {
     local task_file="$1"
     local task_id task_prompt project_path branch permission_mode subdir budget
 
-    task_id=$(python3 -c "import json; print(json.load(open('$task_file'))['id'])")
-    task_prompt=$(python3 -c "import json; print(json.load(open('$task_file'))['prompt'])")
-    project_path=$(python3 -c "import json; print(json.load(open('$task_file'))['project_path'])")
-    branch=$(python3 -c "import json; print(json.load(open('$task_file'))['branch'])")
-    permission_mode=$(python3 -c "import json; print(json.load(open('$task_file')).get('permission_mode','auto'))")
-    subdir=$(python3 -c "import json; print(json.load(open('$task_file')).get('subdir','') or '')")
-    budget=$(python3 -c "import json; print(json.load(open('$task_file')).get('budget_usd', 5))")
+    task_id=$(task_field "$task_file" id)
+    task_prompt=$(task_field "$task_file" prompt)
+    project_path=$(task_field "$task_file" project_path)
+    branch=$(task_field "$task_file" branch)
+    permission_mode=$(task_field "$task_file" permission_mode "auto")
+    subdir=$(task_field "$task_file" subdir "")
+    budget=$(task_field "$task_file" budget_usd "5")
     local base_branch
-    base_branch=$(python3 -c "import json; print(json.load(open('$task_file')).get('base_branch','main'))")
+    base_branch=$(task_field "$task_file" base_branch "main")
 
     local work_dir="$project_path"
     [[ -n "$subdir" ]] && work_dir="$project_path/$subdir"
@@ -296,7 +264,7 @@ is_project_running() {
 run_task_async() {
     local task_file="$1"
     local project
-    project=$(python3 -c "import json; print(json.load(open('$task_file')).get('project_name','unknown'))")
+    project=$(task_field "$task_file" project_name "unknown")
 
     (
         run_task "$task_file" || err "run_task crashed for $(basename "$task_file")"
@@ -339,10 +307,10 @@ while true; do
     # Find queued tasks, one per project
     for f in "$TASKS_DIR"/*.json; do
         [[ -f "$f" ]] || continue
-        status=$(python3 -c "import json; print(json.load(open('$f')).get('status',''))" 2>/dev/null)
+        status=$(task_field "$f" status "" 2>/dev/null)
         [[ "$status" != "queued" ]] && continue
 
-        project=$(python3 -c "import json; print(json.load(open('$f')).get('project_name','unknown'))" 2>/dev/null)
+        project=$(task_field "$f" project_name "unknown" 2>/dev/null)
 
         # Skip if this project already has a running task
         if is_project_running "$project"; then
@@ -382,41 +350,15 @@ while true; do
             # 10 minutes idle — pick from backlog
             BACKLOG_FILE="$FLEET_DIR/backlog.json"
             if [[ -f "$BACKLOG_FILE" ]]; then
-                NEXT_BACKLOG=$(python3 -c "
-import json, os
-bl = json.load(open('$BACKLOG_FILE'))
-tasks_dir = os.path.expanduser('~/.claude-fleet/tasks')
-
-# Find highest priority task not already dispatched
-for task in sorted(bl.get('tasks', []), key=lambda t: t.get('priority', 99)):
-    slug = task.get('slug', '')
-    # Check if already dispatched (any task file contains this slug)
-    already = False
-    for f in os.listdir(tasks_dir):
-        if slug in f:
-            already = True
-            break
-    # Also check by matching existing task slugs
-    for f in os.listdir(tasks_dir):
-        if f.endswith('.json'):
-            try:
-                d = json.load(open(os.path.join(tasks_dir, f)))
-                if d.get('slug') == slug:
-                    already = True
-                    break
-            except: pass
-    if not already:
-        print(json.dumps(task))
-        break
-" 2>/dev/null)
+                NEXT_BACKLOG=$(python3 "$QM" backlog-next "$BACKLOG_FILE" 2>/dev/null)
 
                 if [[ -n "$NEXT_BACKLOG" ]]; then
                     # Create task manifest from backlog item
-                    local bl_slug=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin)['slug'])")
-                    local bl_project=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin)['project_name'])")
-                    local bl_path=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin)['project_path'])")
-                    local bl_prompt=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin)['prompt'])")
-                    local bl_budget=$(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.load(sys.stdin).get('budget_usd', 5))")
+                    local bl_slug=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field slug)
+                    local bl_project=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field project_name)
+                    local bl_path=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field project_path)
+                    local bl_prompt_json=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field prompt "" --json)
+                    local bl_budget=$(echo "$NEXT_BACKLOG" | python3 "$QM" backlog-field budget_usd 5)
                     local bl_id="backlog-$(date +%Y%m%d-%H%M%S)-${bl_slug}"
                     local bl_branch="worker/backlog-${bl_slug}-$(date +%Y%m%d)"
 
@@ -432,7 +374,7 @@ for task in sorted(bl.get('tasks', []), key=lambda t: t.get('priority', 99)):
   "dispatched_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "status": "queued",
   "base_branch": "main",
-  "prompt": $(echo "$NEXT_BACKLOG" | python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin)['prompt']))"),
+  "prompt": ${bl_prompt_json},
   "budget_usd": ${bl_budget},
   "permission_mode": "dangerously-skip-permissions",
   "source": "backlog"
