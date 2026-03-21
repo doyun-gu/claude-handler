@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-REMOTE="mac-mini"
+REMOTE="${WORKER_HOST:-worker}"
 MEMORY_ROOT="$HOME/.claude/projects"
 MODE="${1:-sync}"
 

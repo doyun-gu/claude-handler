@@ -93,7 +93,7 @@ PROJECTS
   faradaysim       main (989a466)       main (989a466)       IN SYNC
   claude-handler   main (f10a054)       main (f10a054)       IN SYNC
   phixty-com       main (abc1234)       main (abc1234)       IN SYNC
-  doyungu-com      main (def5678)       NOT CLONED           ---
+  your-project      main (def5678)       NOT CLONED           ---
   study-with-claude main (ghi9012)      main (ghi9012)       IN SYNC
 
 WORKER TASKS
@@ -117,7 +117,7 @@ OPEN WORKER PRs
 Based on the dashboard state:
 
 - **Out of sync projects**: "faradaysim is behind on Mac Mini. Pull? (y/n)"
-- **NOT CLONED projects**: "doyungu-com not on Mac Mini. Clone it? (y/n)"
+- **NOT CLONED projects**: "your-project not on Mac Mini. Clone it? (y/n)"
 - **Completed tasks with PRs**: "1 Worker PR ready for review. Run `/worker-review`?"
 - **Running tasks**: "1 task running. Run `/worker-status qa-auth-flow` for details."
 - **Blocked tasks**: Show blocker and offer to help unblock.

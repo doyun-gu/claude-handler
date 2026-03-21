@@ -143,7 +143,7 @@ gantt
         Dashboard polish             :ch1, 16:25, 20min
         Public-ready docs            :ch2, after ch1, 15min
 
-    section doyungu-com
+    section example-project
         Design system                :dy1, 16:25, 15min
 ```
 
