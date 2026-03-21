@@ -9,13 +9,13 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #0a0a0a;
-  --bg-surface: #111111;
-  --bg-card: #171717;
-  --bg-hover: #1e1e1e;
-  --border: #374151;
+  --bg: #0f0f14;
+  --bg-surface: #1a1a24;
+  --bg-card: #22222e;
+  --bg-hover: #2a2a38;
+  --border: #2d2d3a;
   --border-subtle: #1f2937;
-  --text: #d1d5db;
+  --text: #e5e5e5;
   --text-dim: #6b7280;
   --text-bright: #f3f4f6;
   --text-white: #ffffff;
@@ -33,6 +33,41 @@
   --blocked-bg: #78350f;
   --radius: 8px;
   --radius-sm: 6px;
+  --chart-grid: #1f2937;
+  --chart-tick: #6b7280;
+  --chart-legend: #9CA3AF;
+  --tooltip-bg: rgba(15, 15, 20, 0.95);
+  --tooltip-border: rgba(255, 255, 255, 0.1);
+  --tooltip-title: #ffffff;
+  --tooltip-body: #d1d5db;
+  --modal-overlay: rgba(0, 0, 0, 0.7);
+}
+
+[data-theme="light"] {
+  --bg: #f8f9fa;
+  --bg-surface: #ffffff;
+  --bg-card: #ffffff;
+  --bg-hover: #f0f1f3;
+  --border: #e5e7eb;
+  --border-subtle: #f0f1f3;
+  --text: #1a1a2e;
+  --text-dim: #6b7280;
+  --text-bright: #111827;
+  --text-white: #111827;
+  --running-bg: #dbeafe;
+  --queued-bg: #f3f4f6;
+  --completed-bg: #dcfce7;
+  --failed-bg: #fee2e2;
+  --merged-bg: #ede9fe;
+  --blocked-bg: #fef3c7;
+  --chart-grid: #e5e7eb;
+  --chart-tick: #6b7280;
+  --chart-legend: #6b7280;
+  --tooltip-bg: rgba(255, 255, 255, 0.95);
+  --tooltip-border: rgba(0, 0, 0, 0.1);
+  --tooltip-title: #111827;
+  --tooltip-body: #374151;
+  --modal-overlay: rgba(0, 0, 0, 0.3);
 }
 
 body {
@@ -42,6 +77,41 @@ body {
   font-size: 13px;
   line-height: 1.5;
   min-width: 1100px;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+/* ── Theme Toggle ─────────────────────── */
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+  padding: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+.theme-toggle svg {
+  width: 14px;
+  height: 14px;
+  fill: currentColor;
+}
+
+/* Smooth transitions for themed elements */
+.topbar, .stat-card, .history-card, .pipeline-col, .chart-card,
+.section-box, .recent-completions-card, .modal, .toast, .btn,
+.task-card, .idle-summary, .filter-pill, .col-header, th, td {
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
 }
 
 /* ── Top Bar ───────────────────────────── */
@@ -669,7 +739,7 @@ tr:hover td { background: var(--bg-hover); }
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.7);
+  background: var(--modal-overlay);
   z-index: 500;
   align-items: center;
   justify-content: center;
@@ -765,6 +835,10 @@ tr:hover td { background: var(--bg-hover); }
       <span class="live-dot" id="live-dot"></span>
       <span id="updated">--</span>
     </div>
+    <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode">
+      <svg id="theme-icon-sun" viewBox="0 0 20 20" style="display:none"><path d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z"/></svg>
+      <svg id="theme-icon-moon" viewBox="0 0 20 20"><path d="M17.293 13.293A8 8 0 016.707 2.707a8.001 8.001 0 1010.586 10.586z"/></svg>
+    </button>
   </div>
 </div>
 
@@ -936,6 +1010,55 @@ tr:hover td { background: var(--bg-hover); }
 <div class="toast-container" id="toasts"></div>
 
 <script>
+// ── Theme System ────────────────────────────
+
+function getSystemTheme() {
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+  if (theme === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  } else {
+    document.documentElement.removeAttribute('data-theme');
+  }
+  // Update toggle icon
+  const sun = document.getElementById('theme-icon-sun');
+  const moon = document.getElementById('theme-icon-moon');
+  if (sun && moon) {
+    sun.style.display = theme === 'dark' ? 'none' : 'block';
+    moon.style.display = theme === 'dark' ? 'block' : 'none';
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.hasAttribute('data-theme') ? 'light' : 'dark';
+  const next = current === 'dark' ? 'light' : 'dark';
+  applyTheme(next);
+  localStorage.setItem('fleet-theme', next);
+  // Re-render charts with new colors
+  refreshCharts();
+}
+
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// Apply theme immediately (before DOM renders)
+(function() {
+  const saved = localStorage.getItem('fleet-theme');
+  const theme = saved || getSystemTheme();
+  applyTheme(theme);
+})();
+
+// Listen for system preference changes
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+  if (!localStorage.getItem('fleet-theme')) {
+    applyTheme(e.matches ? 'dark' : 'light');
+    refreshCharts();
+  }
+});
+
 const REFRESH = 10000;
 let lastFetch = 0;
 let activeProjectFilter = null;
@@ -1592,18 +1715,18 @@ function renderCumulativeChart(data) {
         legend: {
           display: true,
           position: 'top',
-          labels: { color: '#9CA3AF', font: { size: 11, family: '-apple-system, sans-serif' }, boxWidth: 10, boxHeight: 10, padding: 12, usePointStyle: true, pointStyle: 'circle' },
+          labels: { color: cssVar('--chart-legend'), font: { size: 11, family: '-apple-system, sans-serif' }, boxWidth: 10, boxHeight: 10, padding: 12, usePointStyle: true, pointStyle: 'circle' },
         },
         tooltip: {
-          backgroundColor: 'rgba(15, 15, 20, 0.95)',
-          borderColor: 'rgba(255, 255, 255, 0.1)',
+          backgroundColor: cssVar('--tooltip-bg'),
+          borderColor: cssVar('--tooltip-border'),
           borderWidth: 1,
           cornerRadius: 8,
           padding: 12,
           titleFont: { size: 12, weight: '600', family: '-apple-system, sans-serif' },
-          titleColor: '#ffffff',
+          titleColor: cssVar('--tooltip-title'),
           bodyFont: { size: 11, family: '-apple-system, sans-serif' },
-          bodyColor: '#d1d5db',
+          bodyColor: cssVar('--tooltip-body'),
           bodySpacing: 6,
           boxWidth: 8,
           boxHeight: 8,
@@ -1623,16 +1746,16 @@ function renderCumulativeChart(data) {
             },
           },
           footerFont: { size: 11, weight: '600', family: '-apple-system, sans-serif' },
-          footerColor: '#ffffff',
+          footerColor: cssVar('--tooltip-title'),
         },
       },
       scales: {
-        x: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: '#1f2937' } },
+        x: { ticks: { color: cssVar('--chart-tick'), font: { size: 10 } }, grid: { color: cssVar('--chart-grid') } },
         y: {
           beginAtZero: true,
-          title: { display: true, text: 'Cumulative tasks', color: '#6b7280', font: { size: 10 } },
-          ticks: { color: '#6b7280', font: { size: 10 }, stepSize: 1 },
-          grid: { color: '#1f2937' },
+          title: { display: true, text: 'Cumulative tasks', color: cssVar('--chart-tick'), font: { size: 10 } },
+          ticks: { color: cssVar('--chart-tick'), font: { size: 10 }, stepSize: 1 },
+          grid: { color: cssVar('--chart-grid') },
         },
       },
     },
@@ -1670,17 +1793,24 @@ function renderThroughputChart(data) {
       plugins: {
         legend: { display: false },
         tooltip: {
+          backgroundColor: cssVar('--tooltip-bg'),
+          borderColor: cssVar('--tooltip-border'),
+          borderWidth: 1,
+          cornerRadius: 8,
+          padding: 10,
+          titleColor: cssVar('--tooltip-title'),
+          bodyColor: cssVar('--tooltip-body'),
           callbacks: {
             label: function(ctx) { return ctx.raw + ' tasks'; }
           }
         },
       },
       scales: {
-        x: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { display: false } },
+        x: { ticks: { color: cssVar('--chart-tick'), font: { size: 10 } }, grid: { display: false } },
         y: {
           beginAtZero: true,
-          ticks: { color: '#6b7280', font: { size: 10 }, stepSize: 1 },
-          grid: { color: '#1f2937' },
+          ticks: { color: cssVar('--chart-tick'), font: { size: 10 }, stepSize: 1 },
+          grid: { color: cssVar('--chart-grid') },
         },
       },
     },
@@ -1755,10 +1885,13 @@ function renderQueueChart(data) {
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: true, position: 'bottom', labels: { color: '#9CA3AF', boxWidth: 10, font: { size: 10 }, padding: 12 } } },
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { color: cssVar('--chart-legend'), boxWidth: 10, font: { size: 10 }, padding: 12 } },
+        tooltip: { backgroundColor: cssVar('--tooltip-bg'), borderColor: cssVar('--tooltip-border'), borderWidth: 1, cornerRadius: 8, padding: 10, titleColor: cssVar('--tooltip-title'), bodyColor: cssVar('--tooltip-body') },
+      },
       scales: {
-        x: { ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: '#1f2937' } },
-        y: { beginAtZero: true, ticks: { color: '#6b7280', font: { size: 10 }, stepSize: 1 }, grid: { color: '#1f2937' } },
+        x: { ticks: { color: cssVar('--chart-tick'), font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: cssVar('--chart-grid') } },
+        y: { beginAtZero: true, ticks: { color: cssVar('--chart-tick'), font: { size: 10 }, stepSize: 1 }, grid: { color: cssVar('--chart-grid') } },
       },
     },
   });
@@ -1772,13 +1905,13 @@ function renderCostsChart(data) {
     if (chartCosts) chartCosts.destroy();
     chartCosts = new Chart(ctx, {
       type: 'bar',
-      data: { labels: ['No data'], datasets: [{ data: [0], backgroundColor: '#1f2937' }] },
+      data: { labels: ['No data'], datasets: [{ data: [0], backgroundColor: cssVar('--chart-grid') }] },
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { legend: { display: false } },
         scales: {
-          x: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } },
-          y: { ticks: { color: '#6b7280' }, grid: { color: '#1f2937' } },
+          x: { ticks: { color: cssVar('--chart-tick') }, grid: { color: cssVar('--chart-grid') } },
+          y: { ticks: { color: cssVar('--chart-tick') }, grid: { color: cssVar('--chart-grid') } },
         },
       },
     });
@@ -1857,9 +1990,17 @@ function renderCostsChart(data) {
         legend: {
           display: displayProjects.length > 1,
           position: 'bottom',
-          labels: { color: '#9CA3AF', boxWidth: 10, font: { size: 10 }, padding: 12 }
+          labels: { color: cssVar('--chart-legend'), boxWidth: 10, font: { size: 10 }, padding: 12 }
         },
         tooltip: {
+          backgroundColor: cssVar('--tooltip-bg'),
+          borderColor: cssVar('--tooltip-border'),
+          borderWidth: 1,
+          cornerRadius: 8,
+          padding: 10,
+          titleColor: cssVar('--tooltip-title'),
+          bodyColor: cssVar('--tooltip-body'),
+          footerColor: cssVar('--tooltip-title'),
           callbacks: {
             label: function(ctx) { return ctx.dataset.label + ': $' + ctx.raw.toFixed(2); },
             footer: function(items) {
@@ -1870,12 +2011,12 @@ function renderCostsChart(data) {
         },
       },
       scales: {
-        x: { stacked: true, ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: '#1f2937' } },
+        x: { stacked: true, ticks: { color: cssVar('--chart-tick'), font: { size: 10 } }, grid: { color: cssVar('--chart-grid') } },
         y: {
           stacked: true, beginAtZero: true,
-          title: { display: true, text: 'USD', color: '#6b7280', font: { size: 10 } },
-          ticks: { color: '#6b7280', font: { size: 10 }, callback: v => '$' + v },
-          grid: { color: '#1f2937' },
+          title: { display: true, text: 'USD', color: cssVar('--chart-tick'), font: { size: 10 } },
+          ticks: { color: cssVar('--chart-tick'), font: { size: 10 }, callback: v => '$' + v },
+          grid: { color: cssVar('--chart-grid') },
         },
       },
     },
