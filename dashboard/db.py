@@ -796,6 +796,83 @@ def get_analytics() -> dict:
     }
 
 
+def get_cumulative_completions(days: int = 14) -> list[dict]:
+    """Cumulative task completions per day per project for area chart."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT DATE(finished_at) as day, project_name, COUNT(*) as count
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND finished_at IS NOT NULL AND finished_at != ''
+          AND DATE(finished_at) >= DATE('now', ?)
+        GROUP BY day, project_name
+        ORDER BY day ASC
+    """, (f"-{days} days",)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_recent_completions(limit: int = 10) -> list[dict]:
+    """Last N completed tasks with duration and timestamps."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT id, slug, project_name, started_at, finished_at
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND finished_at IS NOT NULL AND finished_at != ''
+        ORDER BY finished_at DESC
+        LIMIT ?
+    """, (limit,)).fetchall()
+
+    result = []
+    now = datetime.utcnow()
+    for row in rows:
+        d = dict(row)
+        # Calculate duration
+        if d.get("started_at") and d.get("finished_at"):
+            try:
+                start = datetime.fromisoformat(d["started_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+                end = datetime.fromisoformat(d["finished_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+                d["duration_minutes"] = round((end - start).total_seconds() / 60, 1)
+            except (ValueError, TypeError):
+                d["duration_minutes"] = 0
+        else:
+            d["duration_minutes"] = 0
+        # Calculate time ago
+        if d.get("finished_at"):
+            try:
+                finished = datetime.fromisoformat(d["finished_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+                delta_sec = (now - finished).total_seconds()
+                if delta_sec < 60:
+                    d["time_ago"] = f"{int(delta_sec)}s ago"
+                elif delta_sec < 3600:
+                    d["time_ago"] = f"{int(delta_sec // 60)}m ago"
+                elif delta_sec < 86400:
+                    d["time_ago"] = f"{int(delta_sec // 3600)}h ago"
+                else:
+                    d["time_ago"] = f"{int(delta_sec // 86400)}d ago"
+            except (ValueError, TypeError):
+                d["time_ago"] = ""
+        else:
+            d["time_ago"] = ""
+        result.append(d)
+    return result
+
+
+def get_daily_throughput(days: int = 7) -> list[dict]:
+    """Tasks completed per day for sparkline/bar chart."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT DATE(finished_at) as day, COUNT(*) as count
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND finished_at IS NOT NULL AND finished_at != ''
+          AND DATE(finished_at) >= DATE('now', ?)
+        GROUP BY DATE(finished_at)
+        ORDER BY day ASC
+    """, (f"-{days} days",)).fetchall()
+    return [dict(row) for row in rows]
+
+
 def log_auto_heal(bug_id: str, project: str, action: str, result: str, details: str = "") -> None:
     """Log an auto-heal action."""
     conn = get_conn()

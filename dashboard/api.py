@@ -28,7 +28,8 @@ from db import get_conn, run_migration, sync_from_json, get_all_tasks, \
     get_task, update_task, get_all_backlog, get_all_events, add_event, \
     get_daily_completions, get_project_breakdown, get_queue_depth_history, \
     get_auto_heal_log, log_auto_heal, get_task_timeline, get_daily_costs, \
-    get_queue_by_project, get_task_stats, get_analytics
+    get_queue_by_project, get_task_stats, get_analytics, \
+    get_cumulative_completions, get_recent_completions, get_daily_throughput
 
 
 async def _periodic_sync():
@@ -1281,6 +1282,24 @@ async def get_stats_task_history():
 async def get_stats_analytics():
     """Focused analytics: avg duration, success rate, queue depth."""
     return get_analytics()
+
+
+@app.get("/api/stats/cumulative")
+async def get_stats_cumulative(days: int = Query(14)):
+    """Cumulative task completions per day per project (for area chart)."""
+    return get_cumulative_completions(days)
+
+
+@app.get("/api/stats/recent-completions")
+async def get_stats_recent_completions(limit: int = Query(10)):
+    """Last N completed tasks with duration and time ago."""
+    return get_recent_completions(limit)
+
+
+@app.get("/api/stats/throughput")
+async def get_stats_throughput(days: int = Query(7)):
+    """Tasks completed per day (for sparkline bar chart)."""
+    return get_daily_throughput(days)
 
 
 # ── Git Status Endpoints ─────────────────────────────────
