@@ -389,6 +389,12 @@ body {
   grid-template-columns: 1fr 1fr 1fr;
   gap: 12px;
 }
+.charts-grid-2x2 {
+  grid-template-columns: 1fr 1fr;
+}
+.chart-card-wide {
+  grid-column: span 2;
+}
 .chart-card {
   background: var(--bg-surface);
   border: 1px solid var(--border);
@@ -406,12 +412,75 @@ body {
 .chart-card canvas {
   max-height: 180px;
 }
+.chart-card-wide canvas {
+  max-height: 220px;
+}
 .chart-total {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-bright);
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
   float: right;
+}
+
+/* ── Recent Completions ───────────────── */
+.recent-completions-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  margin-top: 12px;
+}
+.recent-completions-card h3 {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 10px;
+  font-weight: 500;
+}
+.recent-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.recent-row:last-child { border-bottom: none; }
+.recent-name {
+  flex: 1;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.recent-project {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.recent-duration {
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 40px;
+  text-align: right;
+}
+.recent-ago {
+  color: var(--text-dim);
+  white-space: nowrap;
+  min-width: 55px;
+  text-align: right;
+}
+.recent-empty {
+  color: var(--text-dim);
+  font-size: 12px;
+  padding: 8px 0;
 }
 
 /* ── Review Queue ──────────────────────── */
@@ -799,16 +868,26 @@ tr:hover td { background: var(--bg-hover); }
       <span class="toggle" id="charts-toggle">[hide]</span>
     </div>
     <div class="charts-body" style="margin-top:8px">
-      <div class="charts-grid">
+      <div class="charts-grid charts-grid-2x2">
+        <div class="chart-card chart-card-wide">
+          <h3>Cumulative Completions (14d)</h3>
+          <canvas id="chart-cumulative"></canvas>
+        </div>
         <div class="chart-card">
-          <h3>Task Timeline (24h)</h3>
-          <canvas id="chart-timeline"></canvas>
+          <h3>Daily Throughput (7d)</h3>
+          <canvas id="chart-throughput"></canvas>
         </div>
         <div class="chart-card">
           <h3>Queue Depth (24h)</h3>
           <canvas id="chart-queue"></canvas>
         </div>
         <!-- Daily Cost chart removed per user request -->
+      </div>
+      <div class="recent-completions-card" id="recent-completions">
+        <h3>Recent Completions</h3>
+        <div class="recent-list" id="recent-list">
+          <div class="recent-empty">Loading...</div>
+        </div>
       </div>
     </div>
   </div>
@@ -863,7 +942,8 @@ let activeProjectFilter = null;
 let allTasks = [];
 
 // Chart instances
-let chartTimeline = null;
+let chartCumulative = null;
+let chartThroughput = null;
 let chartQueue = null;
 let chartCosts = null;
 
@@ -1434,57 +1514,176 @@ const STATUS_COLORS = {
 };
 const PROJECT_COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#8b5cf6', '#EF4444', '#06b6d4', '#ec4899', '#84cc16'];
 
-function renderTimelineChart(data) {
-  const ctx = document.getElementById('chart-timeline');
+function renderCumulativeChart(data) {
+  const ctx = document.getElementById('chart-cumulative');
   if (!ctx) return;
 
-  const tasks = data.filter(t => t.started_at);
-  const labels = tasks.map(t => shortSlug(t.id || t.slug));
-  const barData = tasks.map(t => t.duration_minutes || 0);
-  const colors = tasks.map(t => STATUS_COLORS[t.status] || STATUS_COLORS.queued);
+  // Collect all days and projects
+  const daySet = new Set();
+  const projectCounts = {};
+  data.forEach(row => {
+    daySet.add(row.day);
+    if (!projectCounts[row.project_name || 'unknown']) projectCounts[row.project_name || 'unknown'] = {};
+    projectCounts[row.project_name || 'unknown'][row.day] = row.count;
+  });
+  const days = Array.from(daySet).sort();
 
-  if (chartTimeline) chartTimeline.destroy();
-  chartTimeline = new Chart(ctx, {
+  // Rank projects by total volume, top 3 + "Other"
+  const projectTotals = {};
+  Object.entries(projectCounts).forEach(([p, counts]) => {
+    projectTotals[p] = Object.values(counts).reduce((a, b) => a + b, 0);
+  });
+  const ranked = Object.entries(projectTotals).sort((a, b) => b[1] - a[1]);
+  const topProjects = ranked.slice(0, 3).map(r => r[0]);
+  const hasOther = ranked.length > 3;
+
+  // Build cumulative datasets
+  const datasets = [];
+  const CUMUL_COLORS = ['#3B82F6', '#22C55E', '#F59E0B', '#9CA3AF'];
+  topProjects.forEach((proj, i) => {
+    let cumul = 0;
+    const cumulData = days.map(d => { cumul += (projectCounts[proj]?.[d] || 0); return cumul; });
+    datasets.push({
+      label: proj,
+      data: cumulData,
+      borderColor: CUMUL_COLORS[i],
+      backgroundColor: CUMUL_COLORS[i] + '26',
+      fill: true,
+      tension: 0.3,
+      borderWidth: 2,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+    });
+  });
+  if (hasOther) {
+    const otherProjects = ranked.slice(3).map(r => r[0]);
+    let cumul = 0;
+    const cumulData = days.map(d => {
+      otherProjects.forEach(p => { cumul += (projectCounts[p]?.[d] || 0); });
+      return cumul;
+    });
+    datasets.push({
+      label: 'Other',
+      data: cumulData,
+      borderColor: CUMUL_COLORS[3],
+      backgroundColor: CUMUL_COLORS[3] + '26',
+      fill: true,
+      tension: 0.3,
+      borderWidth: 2,
+      pointRadius: 2,
+      pointHoverRadius: 4,
+    });
+  }
+
+  const labels = days.map(d => {
+    const dt = new Date(d + 'T00:00:00');
+    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  });
+
+  if (chartCumulative) chartCumulative.destroy();
+  chartCumulative = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: { color: '#9CA3AF', font: { size: 10 }, boxWidth: 12, padding: 8 },
+        },
+      },
+      scales: {
+        x: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { color: '#1f2937' } },
+        y: {
+          beginAtZero: true,
+          title: { display: true, text: 'Cumulative tasks', color: '#6b7280', font: { size: 10 } },
+          ticks: { color: '#6b7280', font: { size: 10 }, stepSize: 1 },
+          grid: { color: '#1f2937' },
+        },
+      },
+    },
+  });
+}
+
+function renderThroughputChart(data) {
+  const ctx = document.getElementById('chart-throughput');
+  if (!ctx) return;
+
+  const labels = data.map(d => {
+    const dt = new Date(d.day + 'T00:00:00');
+    return dt.toLocaleDateString('en-US', { weekday: 'short' });
+  });
+  const counts = data.map(d => d.count);
+
+  if (chartThroughput) chartThroughput.destroy();
+  chartThroughput = new Chart(ctx, {
     type: 'bar',
     data: {
-      labels: labels,
+      labels,
       datasets: [{
-        label: 'Duration (min)',
-        data: barData,
-        backgroundColor: colors.map(c => c + 'BB'),
-        borderColor: colors,
+        label: 'Completed',
+        data: counts,
+        backgroundColor: '#3B82F6BB',
+        borderColor: '#3B82F6',
         borderWidth: 1,
         borderRadius: 4,
+        barPercentage: 0.6,
       }],
     },
     options: {
-      indexAxis: 'y',
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
         legend: { display: false },
         tooltip: {
           callbacks: {
-            label: function(ctx) {
-              const t = tasks[ctx.dataIndex];
-              return (t.status || '') + ': ' + ctx.raw.toFixed(1) + 'm (' + (t.project_name || '') + ')';
-            }
+            label: function(ctx) { return ctx.raw + ' tasks'; }
           }
-        }
+        },
       },
       scales: {
-        x: {
-          title: { display: true, text: 'Minutes', color: '#6b7280', font: { size: 10 } },
-          ticks: { color: '#6b7280', font: { size: 10 } },
-          grid: { color: '#1f2937' },
-        },
+        x: { ticks: { color: '#6b7280', font: { size: 10 } }, grid: { display: false } },
         y: {
-          ticks: { color: '#9CA3AF', font: { size: 10, family: '"SF Mono", "Fira Code", monospace' } },
-          grid: { display: false },
+          beginAtZero: true,
+          ticks: { color: '#6b7280', font: { size: 10 }, stepSize: 1 },
+          grid: { color: '#1f2937' },
         },
       },
     },
   });
+}
+
+function renderRecentCompletions(data) {
+  const el = document.getElementById('recent-list');
+  if (!el) return;
+  if (!data || data.length === 0) {
+    el.innerHTML = '<div class="recent-empty">No completed tasks yet</div>';
+    return;
+  }
+  el.innerHTML = data.map((t, i) => {
+    const name = shortSlug(t.id || t.slug || '').substring(0, 30);
+    const proj = esc(t.project_name || 'unknown');
+    const color = PROJECT_COLORS[Math.abs(hashCode(proj)) % PROJECT_COLORS.length];
+    const dur = t.duration_minutes >= 60
+      ? Math.floor(t.duration_minutes / 60) + 'h ' + Math.round(t.duration_minutes % 60) + 'm'
+      : Math.round(t.duration_minutes) + 'm';
+    const ago = esc(t.time_ago || '');
+    return '<div class="recent-row">' +
+      '<span class="recent-name">' + esc(name) + '</span>' +
+      '<span class="recent-project" style="background:' + color + '22;color:' + color + '">' + proj + '</span>' +
+      '<span class="recent-duration">' + dur + '</span>' +
+      '<span class="recent-ago">' + ago + '</span>' +
+      '</div>';
+  }).join('');
+}
+
+function hashCode(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = ((h << 5) - h) + s.charCodeAt(i); h |= 0; }
+  return h;
 }
 
 function renderQueueChart(data) {
@@ -1654,12 +1853,16 @@ function renderCostsChart(data) {
 
 async function refreshCharts() {
   try {
-    const [timeline, queue, costs] = await Promise.all([
-      api('/api/timeline?hours=24'),
+    const [cumulative, throughput, recent, queue, costs] = await Promise.all([
+      api('/api/stats/cumulative?days=14'),
+      api('/api/stats/throughput?days=7'),
+      api('/api/stats/recent-completions?limit=10'),
       api('/api/stats/queue-depth?hours=24'),
       api('/api/costs?days=7'),
     ]);
-    renderTimelineChart(timeline);
+    renderCumulativeChart(cumulative);
+    renderThroughputChart(throughput);
+    renderRecentCompletions(recent);
     renderQueueChart(queue);
     renderCostsChart(costs);
   } catch (e) {
