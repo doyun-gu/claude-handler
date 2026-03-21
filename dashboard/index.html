@@ -142,6 +142,8 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 .col-header {
   padding: 10px 14px;
@@ -152,6 +154,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  min-height: 42px;
 }
 .col-header .task-count {
   font-size: 11px;
@@ -161,6 +164,9 @@ body {
 .col-body {
   padding: 8px;
   min-height: 80px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Running task card */
@@ -250,7 +256,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 60px;
+  flex: 1;
   color: var(--text-dim);
   font-style: italic;
   font-size: 12px;
@@ -866,8 +872,9 @@ function renderPipeline(queueData) {
   const el = document.getElementById('pipeline');
 
   // Filter to only show projects with tasks (running or queued), plus all idle ones
+  // Hide 'unknown' column if it has no tasks
   const hasWork = queueData.filter(p => p.running || p.queued.length > 0);
-  const idle = queueData.filter(p => !p.running && p.queued.length === 0);
+  const idle = queueData.filter(p => !p.running && p.queued.length === 0 && p.project !== 'unknown');
 
   // Show projects with work first, then idle
   const sorted = [...hasWork, ...idle];
