@@ -43,6 +43,15 @@ Before evaluating which branch to follow:
 2. **If it exists:** read it silently. Apply the preferences it contains for the rest of this session (see "Applying User Profile" below). Do not mention the profile to the user unless they ask.
 3. **If it does not exist:** after completing the branch logic below, add a one-line nudge: *"Tip: run `/cofounder` to personalise how I work with you."* Do not block on this — continue the normal startup flow.
 
+### Pre-check: Handoff
+
+Check for the last session's handoff:
+
+1. Read `~/.claude-fleet/HANDOFF.md` or `~/Developer/my-world/HANDOFF.md` (whichever exists).
+2. **If it exists and is from today or yesterday:** incorporate the pending tasks and notes into your greeting. Mention what's still open. Don't read the whole file aloud — just surface the actionable items.
+3. **If it exists but is older than 2 days:** mention it briefly ("Last handoff was from {date}") but don't assume it's current — things may have changed.
+4. **If it doesn't exist:** skip silently.
+
 ### Pre-check: Auto-Sync
 
 Before doing anything else, silently sync the current project:
