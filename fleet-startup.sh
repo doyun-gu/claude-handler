@@ -66,11 +66,18 @@ if ! tmux has-session -t worker-daemon 2>/dev/null; then
     echo "[$(timestamp)] Started: Worker Daemon" >> "$LOG"
 fi
 
-# Health Checker
+# Health Checker (legacy bash)
 if [[ -f "$HANDLER_DIR/demo-healthcheck.sh" ]] && ! tmux has-session -t demo-health 2>/dev/null; then
     tmux new-session -d -s demo-health \
         "cd $HANDLER_DIR && ./demo-healthcheck.sh 2>&1 | tee $FLEET_DIR/logs/demo-health.log"
     echo "[$(timestamp)] Started: Health Checker" >> "$LOG"
+fi
+
+# Health Monitor (Python — service checks + auto-fix)
+if [[ -f "$HANDLER_DIR/health-monitor.py" ]] && ! tmux has-session -t health-monitor 2>/dev/null; then
+    tmux new-session -d -s health-monitor \
+        "cd $HANDLER_DIR && python3 health-monitor.py 2>&1 | tee $FLEET_DIR/logs/health-monitor-console.log"
+    echo "[$(timestamp)] Started: Health Monitor" >> "$LOG"
 fi
 
 # ── Project services from projects.json ─────────────
