@@ -18,9 +18,18 @@ LOGS_DIR="$FLEET_DIR/logs"
 REVIEW_DIR="$FLEET_DIR/review-queue"
 EVENTS_FILE="$FLEET_DIR/events.json"
 RUNNING_DIR="/tmp/fleet-running"
+TASK_STATUS_DIR="$FLEET_DIR/task-status"
+HEARTBEAT_FILE="$FLEET_DIR/daemon-heartbeat"
+HEALTH_FILE="$FLEET_DIR/daemon-health.json"
+CRASH_FILE="$FLEET_DIR/daemon-crashes"
+ERROR_LOG="$FLEET_DIR/daemon-errors.log"
 POLL_INTERVAL="${1:-30}"
 IDLE_SINCE=0
 MAX_PARALLEL=3
+DAEMON_START=$(date +%s)
+CYCLE_COUNT=0
+LAST_ERROR=""
+TASK_TIMEOUT=7200  # 2 hours in seconds
 
 # ─── Colors & logging ────────────────────────────────────────────────────────
 
@@ -35,6 +44,19 @@ warn() { echo -e "${YELLOW}[daemon $(date +%H:%M:%S)]${NC} $1"; }
 err()  { echo -e "${RED}[daemon $(date +%H:%M:%S)]${NC} $1"; }
 ok()   { echo -e "${GREEN}[daemon $(date +%H:%M:%S)]${NC} $1"; }
 
+# ─── Error code logging ─────────────────────────────────────────────────────
+# All errors logged as "[D-XXX] description" for greppability.
+# Also appended to daemon-errors.log (append-only, one line per error).
+
+log_error() {
+    local code="$1" msg="$2"
+    local ts
+    ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    err "[$code] $msg"
+    echo "$ts [$code] $msg" >> "$ERROR_LOG"
+    LAST_ERROR="$code: $msg"
+}
+
 # ─── Script directory (fail fast if unresolvable) ─────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -45,7 +67,7 @@ fi
 
 # ─── Directories ──────────────────────────────────────────────────────────────
 
-mkdir -p "$TASKS_DIR" "$LOGS_DIR" "$REVIEW_DIR" "$RUNNING_DIR"
+mkdir -p "$TASKS_DIR" "$LOGS_DIR" "$REVIEW_DIR" "$RUNNING_DIR" "$TASK_STATUS_DIR"
 
 # ─── Machine role ─────────────────────────────────────────────────────────────
 
@@ -63,7 +85,7 @@ fi
 
 CLAUDE_BIN="${WORKER_CLAUDE_BIN:-$HOME/.local/bin/claude}"
 if [[ ! -x "$CLAUDE_BIN" ]]; then
-    err "Claude CLI not found at $CLAUDE_BIN"
+    log_error "D-003" "Claude CLI not found or not executable at $CLAUDE_BIN"
     exit 1
 fi
 
@@ -76,7 +98,7 @@ elif [[ -f "$SCRIPT_DIR/queue-manager.py" ]]; then
     QM="$SCRIPT_DIR/queue-manager.py"
     warn "fleet-brain.py not found, falling back to queue-manager.py"
 else
-    err "No queue manager found (fleet-brain.py or queue-manager.py)"
+    log_error "D-002" "Queue manager not found (fleet-brain.py or queue-manager.py)"
     exit 1
 fi
 
@@ -84,17 +106,30 @@ fi
 # These never crash the daemon — they return empty/default on failure.
 
 task_field() {
-    python3 "$QM" task-field "$@" 2>/dev/null || echo ""
+    local result
+    result=$(python3 "$QM" task-field "$@" 2>&1) || {
+        local err_snippet="${result:0:100}"
+        if [[ "$err_snippet" == *"json"* || "$err_snippet" == *"JSON"* || "$err_snippet" == *"decode"* ]]; then
+            log_error "D-021" "Task JSON parse error: $err_snippet"
+        fi
+        echo ""
+        return 1
+    }
+    echo "$result"
 }
 
 count_tasks() {
     local result
-    result=$(python3 "$QM" count-status "$1" 2>/dev/null) || result="0"
+    result=$(python3 "$QM" count-status "$1" 2>&1) || {
+        log_error "D-020" "Queue manager crash on count-status: ${result:0:100}"
+        echo "0"
+        return 1
+    }
     echo "${result:-0}"
 }
 
 update_task_status() {
-    python3 "$QM" update-status "$@" 2>/dev/null || warn "Failed to update status for $1"
+    python3 "$QM" update-status "$@" 2>/dev/null || log_error "D-020" "Queue manager crash on update-status for $1"
 }
 
 # ─── Safe file read (TOCTOU-resistant) ────────────────────────────────────────
@@ -104,6 +139,155 @@ read_pidfile() {
     local pid=""
     pid=$(cat "$pidfile" 2>/dev/null) || return 1
     [[ -n "$pid" ]] && echo "$pid" || return 1
+}
+
+# ─── Crash detection ────────────────────────────────────────────────────────
+# On startup, check if the previous daemon died recently (within 60s).
+# If so, increment crash counter. After 5 crashes in 5 min, stop.
+
+detect_crash_restart() {
+    local now
+    now=$(date +%s)
+
+    if [[ -f "$HEARTBEAT_FILE" ]]; then
+        local last_ts=0
+        last_ts=$(sed -n 's/.*timestamp=\([0-9]*\).*/\1/p' "$HEARTBEAT_FILE" 2>/dev/null) || last_ts=0
+        local delta=$(( now - last_ts ))
+
+        if (( delta < 60 && delta >= 0 )); then
+            # This looks like a crash-restart
+            local crash_count=0 first_crash_ts="$now"
+
+            if [[ -f "$CRASH_FILE" ]]; then
+                crash_count=$(sed -n 's/.*count=\([0-9]*\).*/\1/p' "$CRASH_FILE" 2>/dev/null) || crash_count=0
+                first_crash_ts=$(sed -n 's/.*first=\([0-9]*\).*/\1/p' "$CRASH_FILE" 2>/dev/null) || first_crash_ts="$now"
+            fi
+
+            crash_count=$((crash_count + 1))
+            local window=$(( now - first_crash_ts ))
+
+            # Reset window if >5 minutes have passed since first crash
+            if (( window > 300 )); then
+                crash_count=1
+                first_crash_ts="$now"
+            fi
+
+            echo "count=$crash_count first=$first_crash_ts last=$now" > "$CRASH_FILE"
+
+            local last_known_err=""
+            [[ -f "$ERROR_LOG" ]] && last_known_err=$(tail -1 "$ERROR_LOG" 2>/dev/null | head -c 200)
+            log_error "D-001" "Crash restart detected (count: $crash_count, last error: ${last_known_err:-unknown})"
+
+            if (( crash_count >= 5 )); then
+                log_error "D-001" "5+ restarts in 5 minutes — stopping daemon to prevent crash loop"
+
+                cat > "$REVIEW_DIR/daemon-crash-loop-blocked.md" << CRASH_EOF
+---
+task_id: daemon-crash-loop
+project: fleet-infrastructure
+type: blocked
+priority: critical
+created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+---
+
+## Daemon Crash Loop Detected
+
+The worker daemon has restarted $crash_count times in the last $((window)) seconds.
+
+**Last known error:** ${last_known_err:-none}
+
+Check the logs:
+- Error log: ~/.claude-fleet/daemon-errors.log
+- Crash file: ~/.claude-fleet/daemon-crashes
+
+The daemon has stopped itself. Investigate and restart manually.
+CRASH_EOF
+                exit 1
+            fi
+        fi
+    fi
+}
+
+# Reset crash counter after 10 minutes of stable operation
+reset_crash_counter_if_stable() {
+    [[ -f "$CRASH_FILE" ]] || return 0
+    local now last_crash
+    now=$(date +%s)
+    last_crash=$(sed -n 's/.*last=\([0-9]*\).*/\1/p' "$CRASH_FILE" 2>/dev/null) || return 0
+    if (( now - last_crash > 600 )); then
+        rm -f "$CRASH_FILE"
+        log "Crash counter reset after 10 minutes of stable operation"
+    fi
+}
+
+# ─── Heartbeat & health ─────────────────────────────────────────────────────
+
+write_heartbeat() {
+    local running_count="$1" queued_count="$2"
+    local now
+    now=$(date +%s)
+    local uptime=$(( now - DAEMON_START ))
+    local idle_val="${IDLE_SINCE:-0}"
+    echo "timestamp=$now running=$running_count queued=$queued_count idle_since=$idle_val uptime=$uptime cycle=$CYCLE_COUNT" > "$HEARTBEAT_FILE"
+}
+
+daemon_health() {
+    local running_count="$1" queued_count="$2"
+    local now
+    now=$(date +%s)
+    local uptime=$(( now - DAEMON_START ))
+    local crash_count=0
+    [[ -f "$CRASH_FILE" ]] && crash_count=$(sed -n 's/.*count=\([0-9]*\).*/\1/p' "$CRASH_FILE" 2>/dev/null)
+    crash_count="${crash_count:-0}"
+    local last_err="null"
+    if [[ -n "$LAST_ERROR" ]]; then
+        # Escape quotes and truncate for JSON safety
+        local escaped
+        escaped=$(echo "$LAST_ERROR" | sed 's/"/\\"/g' | head -c 200)
+        last_err="\"$escaped\""
+    fi
+
+    local status="healthy"
+    if (( crash_count >= 3 )); then
+        status="degraded"
+    fi
+
+    # Check disk space (warn if <1GB free)
+    local free_kb
+    free_kb=$(df -k "$HOME" 2>/dev/null | awk 'NR==2{print $4}') || free_kb=999999999
+    if (( free_kb < 1048576 )); then
+        status="degraded"
+        log_error "D-050" "Disk space low: $((free_kb / 1024))MB free (<1GB)"
+    fi
+
+    cat > "$HEALTH_FILE" << HEALTH_EOF
+{"status":"$status","uptime":$uptime,"running":$running_count,"queued":$queued_count,"crashes":$crash_count,"last_error":$last_err,"cycle":$CYCLE_COUNT}
+HEALTH_EOF
+}
+
+# ─── Task status file helpers ────────────────────────────────────────────────
+
+write_task_status() {
+    local task_id="$1" phase="$2" msg="${3:-}"
+    local project="${4:-unknown}" branch="${5:-unknown}" pid="${6:-$$}"
+    local now
+    now=$(date +%s)
+    local started="${7:-$now}"
+
+    cat > "$TASK_STATUS_DIR/${task_id}.status" << STATUS_EOF
+phase=$phase
+last_activity=$now
+pid=$pid
+project=$project
+branch=$branch
+started_at=$started
+msg=$msg
+STATUS_EOF
+}
+
+clean_task_status() {
+    local task_id="$1"
+    rm -f "$TASK_STATUS_DIR/${task_id}.status"
 }
 
 # ─── Project state checks ────────────────────────────────────────────────────
@@ -117,6 +301,7 @@ is_project_running() {
     if kill -0 "$pid" 2>/dev/null; then
         return 0  # Still running
     fi
+    log_error "D-004" "Stale PID file for $project (pid $pid dead) — auto-cleaning"
     rm -f "$pidfile"
     return 1  # Stale PID, cleaned up
 }
@@ -125,14 +310,16 @@ is_project_frozen() {
     local project="$1"
     [[ -f "$EVENTS_FILE" ]] || return 1
 
-    python3 -c "
+    local result
+    result=$(python3 -c "
 import json, sys
 from datetime import datetime, timezone
 project = sys.argv[1]
 try:
     events = json.loads(open(sys.argv[2]).read())
-except Exception:
-    sys.exit(1)
+except Exception as e:
+    print('PARSE_ERROR:' + str(e), file=sys.stderr)
+    sys.exit(2)
 now = datetime.now(timezone.utc)
 for e in events:
     if project not in e.get('freeze_projects', []):
@@ -150,7 +337,15 @@ for e in events:
     except Exception:
         continue
 sys.exit(1)
-" "$project" "$EVENTS_FILE" 2>/dev/null
+" "$project" "$EVENTS_FILE" 2>/dev/null)
+    local rc=$?
+    if (( rc == 2 )); then
+        log_error "D-040" "Events.json parse error — treating $project as not frozen"
+        return 1
+    elif (( rc == 0 )); then
+        return 0  # frozen
+    fi
+    return 1
 }
 
 count_running() {
@@ -158,10 +353,15 @@ count_running() {
     local pidfile pid
     for pidfile in "$RUNNING_DIR"/*.pid; do
         [[ -f "$pidfile" ]] || continue
-        pid=$(read_pidfile "$pidfile") || { rm -f "$pidfile"; continue; }
+        pid=$(read_pidfile "$pidfile") || {
+            log_error "D-005" "PID file race: $(basename "$pidfile") disappeared between check and read"
+            rm -f "$pidfile"
+            continue
+        }
         if kill -0 "$pid" 2>/dev/null; then
             count=$((count + 1))
         else
+            log_error "D-004" "Stale PID file: $(basename "$pidfile") (pid $pid dead) — auto-cleaning"
             rm -f "$pidfile"
         fi
     done
@@ -231,7 +431,7 @@ try_auto_merge() {
     local pr_number
     pr_number=$(gh pr list --repo "$repo" --head "$branch" --json number --jq '.[0].number' 2>/dev/null) || pr_number=""
     if [[ -z "$pr_number" ]]; then
-        warn "[auto-merge] No open PR for branch '$branch' in $repo"
+        log_error "D-031" "GitHub API unreachable or no open PR for branch '$branch' in $repo"
         return 1
     fi
 
@@ -251,7 +451,7 @@ try_auto_merge() {
         done
         return 0
     else
-        warn "[auto-merge] Failed to merge PR #$pr_number"
+        log_error "D-030" "Auto-merge failed for PR #$pr_number ($repo) — leaving for human review"
         return 1
     fi
 }
@@ -269,8 +469,7 @@ run_task() {
     branch=$(task_field "$task_file" branch)
 
     if [[ -z "$task_id" || -z "$task_prompt" || -z "$project_path" || -z "$branch" ]]; then
-        err "Task manifest missing required fields: $task_file"
-        err "  id='$task_id' prompt='${task_prompt:0:30}...' path='$project_path' branch='$branch'"
+        log_error "D-010" "Task manifest missing required fields: $task_file (id='$task_id' path='$project_path' branch='$branch')"
         update_task_status "$task_file" "failed" "error_message=Missing required fields in manifest"
         return 1
     fi
@@ -286,7 +485,7 @@ run_task() {
 
     # Validate project path exists
     if [[ ! -d "$project_path" ]]; then
-        err "Project path does not exist: $project_path"
+        log_error "D-011" "Project path does not exist: $project_path (task: $task_id)"
         update_task_status "$task_file" "failed" "error_message=Project path not found: $project_path"
         return 1
     fi
@@ -296,7 +495,10 @@ run_task() {
     log "  Branch:  $branch"
     log "  Est:     $estimated_time"
 
+    local task_started_at
+    task_started_at=$(date +%s)
     update_task_status "$task_file" "running"
+    write_task_status "$task_id" "starting" "Preparing git and environment" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
 
     # Prepare git
     cd "$project_path" || { err "cd failed: $project_path"; return 1; }
@@ -307,7 +509,12 @@ run_task() {
             git checkout -b "$branch" "$base_branch" 2>/dev/null ||
             git checkout -b "$branch" origin/main 2>/dev/null ||
             git checkout -b "$branch" main 2>/dev/null ||
-            { err "Cannot create branch $branch"; return 1; }
+            {
+                log_error "D-012" "Cannot create or checkout branch $branch (task: $task_id)"
+                update_task_status "$task_file" "failed" "error_message=Cannot create branch $branch"
+                write_task_status "$task_id" "failed" "Cannot create branch $branch" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+                return 1
+            }
     else
         git checkout "$branch" 2>/dev/null || true
     fi
@@ -356,6 +563,7 @@ WORKER RULES:
     # Run Claude
     local log_file="$LOGS_DIR/${task_id}.log"
     local exit_code=0
+    write_task_status "$task_id" "running" "Claude session active" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
 
     if command -v script &>/dev/null && [[ "$(uname)" == "Darwin" ]]; then
         script -q "$log_file" \
@@ -384,6 +592,7 @@ WORKER RULES:
     # Handle result
     if [[ $exit_code -eq 0 ]]; then
         ok "Task $task_id completed successfully"
+        write_task_status "$task_id" "completed" "Task finished successfully" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
 
         local pr_url=""
         pr_url=$(cd "$project_path" && gh pr list --head "$branch" --json url -q '.[0].url' 2>/dev/null) || pr_url=""
@@ -426,14 +635,14 @@ Check the PR and summary:
 REVIEW_EOF
         fi
     else
-        err "Task $task_id failed (exit $exit_code)"
-
         local error_msg="exit code $exit_code"
         if [[ -f "$log_file" && -s "$log_file" ]]; then
             local extracted
             extracted=$(tail -5 "$log_file" 2>/dev/null | grep -i "error\|fail\|exception" | tail -1 | head -c 200) || extracted=""
             [[ -n "$extracted" ]] && error_msg="$extracted"
         fi
+        log_error "D-013" "Claude exited non-zero for task $task_id (exit $exit_code): $error_msg"
+        write_task_status "$task_id" "failed" "$error_msg" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
         update_task_status "$task_file" "failed" "error_message=$error_msg"
 
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-failed "$task_id" 2>/dev/null &
@@ -483,7 +692,10 @@ try_dispatch_backlog() {
     [[ -f "$backlog_file" ]] || return 1
 
     local next_backlog
-    next_backlog=$(python3 "$QM" backlog-next "$backlog_file" 2>/dev/null) || return 1
+    next_backlog=$(python3 "$QM" backlog-next "$backlog_file" 2>&1) || {
+        [[ -n "$next_backlog" ]] && log_error "D-020" "Queue manager backlog-next crash: ${next_backlog:0:100}"
+        return 1
+    }
     [[ -n "$next_backlog" ]] || { log "Backlog empty."; return 1; }
 
     # Parse backlog item fields
@@ -525,6 +737,9 @@ TASKEOF
 
 # ─── Main loop ────────────────────────────────────────────────────────────────
 
+# Crash detection on startup
+detect_crash_restart
+
 log "Worker daemon started (PARALLEL MODE)"
 log "  Poll interval: ${POLL_INTERVAL}s"
 log "  Claude CLI:    $CLAUDE_BIN"
@@ -538,6 +753,7 @@ echo ""
 status="" project="" queued="" running="" now="" idle_secs=""
 
 while true; do
+    CYCLE_COUNT=$((CYCLE_COUNT + 1))
     launched=0
     running=$(count_running)
 
@@ -547,6 +763,9 @@ while true; do
 
         # Respect parallel limit
         if (( (running + launched) >= MAX_PARALLEL )); then
+            if (( launched == 0 )); then
+                log_error "D-051" "Too many running tasks ($running/$MAX_PARALLEL) — waiting"
+            fi
             break
         fi
 
@@ -562,7 +781,7 @@ while true; do
 
         # Skip if project is frozen (safe: never crashes the loop)
         if is_project_frozen "$project" 2>/dev/null; then
-            warn "Skipping $project — frozen"
+            log_error "D-041" "Project $project is frozen — task skipped"
             continue
         fi
 
@@ -580,6 +799,13 @@ while true; do
     # Adaptive poll interval
     running=$(count_running)
     queued=$(count_tasks "queued")
+
+    # Write heartbeat + health every cycle
+    write_heartbeat "$running" "$queued"
+    daemon_health "$running" "$queued"
+
+    # Reset crash counter after 10 min of stable operation
+    reset_crash_counter_if_stable
 
     if (( running > 0 )); then
         sleep 10
