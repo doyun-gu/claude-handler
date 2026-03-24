@@ -60,11 +60,23 @@ BRANCH="worker/${TASK_SLUG}-$(date +%Y%m%d)"
 TMUX_SESSION="claude-${TASK_SLUG}"
 ```
 
-### Step 4: Write local task manifest
+### Step 4: Write local task manifest + prompt file
+
+**CRITICAL: The prompt MUST be written to a separate `.prompt` file.** Never inline prompts in JSON — special characters (quotes, backticks, `$`, newlines) silently break JSON and the daemon rejects the task.
+
+**Step 4a: Write the prompt to its own plain-text file.**
 
 ```bash
-mkdir -p ~/.claude-fleet/tasks
-cat > ~/.claude-fleet/tasks/${TASK_ID}.json << EOF
+mkdir -p ~/.claude-fleet/tasks ~/.claude-fleet/dispatch-log
+```
+
+Write the full task prompt to `~/.claude-fleet/tasks/${TASK_ID}.prompt` using the Write tool (NOT a heredoc or echo). This file is plain text — no JSON escaping needed. Any length, any characters.
+
+**Step 4b: Write the JSON manifest (no prompt field — it references the .prompt file).**
+
+Write the following JSON to `~/.claude-fleet/tasks/${TASK_ID}.json` using the Write tool:
+
+```json
 {
   "id": "${TASK_ID}",
   "slug": "${TASK_SLUG}",
@@ -72,15 +84,32 @@ cat > ~/.claude-fleet/tasks/${TASK_ID}.json << EOF
   "project_name": "<project_name>",
   "project_path": "<project_dir>",
   "subdir": "<subdir_or_null>",
-  "dispatched_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "dispatched_at": "<ISO 8601 timestamp>",
   "status": "<queued_or_dispatched>",
-  "prompt": "<the full task prompt>",
+  "prompt_file": "${TASK_ID}.prompt",
   "budget_usd": <budget>,
   "permission_mode": "<permission>",
   "tmux_session": "${TMUX_SESSION}"
 }
-EOF
 ```
+
+**Step 4c: Create a dispatch-log backup copy.**
+
+```bash
+cp ~/.claude-fleet/tasks/${TASK_ID}.json ~/.claude-fleet/dispatch-log/${TASK_ID}.json
+cp ~/.claude-fleet/tasks/${TASK_ID}.prompt ~/.claude-fleet/dispatch-log/${TASK_ID}.prompt
+```
+
+**Step 4d: Validate before proceeding.**
+
+After writing both files, verify the manifest is valid JSON and the prompt file is non-empty:
+
+```bash
+python3 -c "import json; d=json.load(open('$HOME/.claude-fleet/tasks/${TASK_ID}.json')); assert d.get('prompt_file'), 'missing prompt_file field'"
+test -s ~/.claude-fleet/tasks/${TASK_ID}.prompt || echo "ERROR: prompt file is empty"
+```
+
+If validation fails, fix the issue before continuing. Never dispatch a task with an empty or missing prompt.
 
 **Status values:**
 - `queued` — waiting for the worker daemon to pick it up
@@ -91,9 +120,12 @@ EOF
 - `blocked` — Worker hit an unresolvable issue
 - `merged` — Commander merged the PR
 
-### Step 5: Copy task manifest to Worker
+### Step 5: Copy task files to Worker
+
+**Sync order matters: prompt file FIRST, then manifest.** The daemon triggers on the `.json` file, so the `.prompt` must already be there.
 
 ```bash
+scp ~/.claude-fleet/tasks/${TASK_ID}.prompt mac-mini:~/.claude-fleet/tasks/
 scp ~/.claude-fleet/tasks/${TASK_ID}.json mac-mini:~/.claude-fleet/tasks/
 ```
 
@@ -167,11 +199,12 @@ ssh mac-mini "
   mkdir -p ~/.claude-fleet/tasks ~/.claude-fleet/logs ~/.claude-fleet/review-queue
 
   tmux new-session -d -s ${TMUX_SESSION} \"
+    TASK_PROMPT=\\\$(cat ~/.claude-fleet/tasks/${TASK_ID}.prompt) && \\
     ${WORKER_CLAUDE_BIN} -p \\
       --dangerously-skip-permissions \\
       --max-turns 200 \\
       --append-system-prompt '${WORKER_PROMPT}' \\
-      '<the task prompt>' \\
+      \\\"\\\$TASK_PROMPT\\\" \\
       2>&1 | tee ~/.claude-fleet/logs/${TASK_ID}.log;
     echo TASK_COMPLETE
   \"

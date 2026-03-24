@@ -464,13 +464,45 @@ run_task() {
     # Read task manifest — validate critical fields
     local task_id task_prompt project_path branch
     task_id=$(task_field "$task_file" id)
-    task_prompt=$(task_field "$task_file" prompt)
     project_path=$(task_field "$task_file" project_path)
     branch=$(task_field "$task_file" branch)
 
+    # Read prompt: prefer separate .prompt file, fall back to inline JSON field
+    local prompt_file_ref prompt_file_path
+    prompt_file_ref=$(task_field "$task_file" prompt_file "")
+    if [[ -n "$prompt_file_ref" ]]; then
+        # New format: prompt in separate file (referenced by manifest)
+        prompt_file_path="$TASKS_DIR/$prompt_file_ref"
+        if [[ -f "$prompt_file_path" ]]; then
+            task_prompt=$(cat "$prompt_file_path")
+        else
+            log_error "D-014" "Prompt file not found: $prompt_file_path (task: $task_id)"
+            task_prompt=""
+        fi
+    else
+        # Legacy format: inline prompt in JSON
+        task_prompt=$(task_field "$task_file" prompt)
+    fi
+
+    # Also check for .prompt file by convention (id-based) even if not referenced
+    if [[ -z "$task_prompt" ]]; then
+        local convention_prompt="$TASKS_DIR/${task_id}.prompt"
+        if [[ -f "$convention_prompt" ]]; then
+            log "Recovered prompt from convention file: $convention_prompt"
+            task_prompt=$(cat "$convention_prompt")
+        fi
+    fi
+
     if [[ -z "$task_id" || -z "$task_prompt" || -z "$project_path" || -z "$branch" ]]; then
-        log_error "D-010" "Task manifest missing required fields: $task_file (id='$task_id' path='$project_path' branch='$branch')"
+        log_error "D-010" "Task manifest missing required fields: $task_file (id='$task_id' prompt_len=${#task_prompt} path='$project_path' branch='$branch')"
         update_task_status "$task_file" "failed" "error_message=Missing required fields in manifest"
+        return 1
+    fi
+
+    # Validate prompt is substantive (not just whitespace or a few chars)
+    if [[ ${#task_prompt} -lt 10 ]]; then
+        log_error "D-015" "Prompt too short (${#task_prompt} chars) for task $task_id — likely a dispatch failure"
+        update_task_status "$task_file" "failed" "error_message=Prompt too short (${#task_prompt} chars) — re-dispatch with valid prompt"
         return 1
     fi
 
