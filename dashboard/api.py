@@ -1097,6 +1097,65 @@ async def submit_action(action: ActionRequest):
     return {"status": "error", "message": f"Unknown action type: {action.type}"}
 
 
+@app.post("/api/tasks/{task_id}/redispatch")
+async def redispatch_task(task_id: str):
+    """Re-dispatch a failed/blocked task by creating a new queued copy."""
+    task_file, task_data = _find_task_manifest(task_id)
+    if not task_data:
+        return {"status": "error", "message": f"Task not found: {task_id}"}
+    if task_data.get("status") not in ("failed", "blocked"):
+        return {"status": "error", "message": "Can only re-dispatch failed/blocked tasks"}
+
+    ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    orig_id = task_data.get("id", task_id)
+    m = re.match(r"^\d{8}-\d{6}-(.+)$", orig_id)
+    short_slug = m.group(1) if m else orig_id
+    new_id = f"{ts}-{short_slug}"
+
+    new_task = {
+        "id": new_id,
+        "slug": new_id,
+        "status": "queued",
+        "project_name": task_data.get("project_name", ""),
+        "project_path": task_data.get("project_path", ""),
+        "prompt": task_data.get("prompt", ""),
+        "dispatched_at": datetime.now().isoformat(),
+        "branch": f"worker/{short_slug}-{ts[:8]}",
+        "budget_usd": task_data.get("budget_usd", 10),
+        "original_task_id": orig_id,
+    }
+
+    TASKS_DIR.mkdir(parents=True, exist_ok=True)
+    (TASKS_DIR / f"{new_id}.json").write_text(json.dumps(new_task, indent=2))
+    try:
+        sync_from_json()
+    except Exception:
+        pass
+
+    return {"status": "ok", "message": f"Re-dispatched as {new_id}", "new_task_id": new_id}
+
+
+@app.get("/api/tasks/{task_id}/progress")
+async def get_task_progress(task_id: str):
+    """Get tmux output for a running task."""
+    task_file, task_data = _find_task_manifest(task_id)
+    if not task_data or task_data.get("status") != "running":
+        return {"task_id": task_id, "progress_lines": []}
+
+    lines: list[str] = []
+    try:
+        result = subprocess.run(
+            ["tmux", "capture-pane", "-t", "worker-daemon", "-p", "-l", "5"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            lines = [l for l in result.stdout.strip().split("\n") if l.strip()][-3:]
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    return {"task_id": task_id, "progress_lines": lines}
+
+
 # ── Backlog Endpoint ────────────────────────────────────
 
 
