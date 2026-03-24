@@ -290,6 +290,53 @@ clean_task_status() {
     rm -f "$TASK_STATUS_DIR/${task_id}.status"
 }
 
+# ─── Process group management ─────────────────────────────────────────────────
+# Kill a task and ALL its child processes (Claude + node + MCP servers).
+# Without this, orphaned processes accumulate and eat RAM.
+
+kill_task_group() {
+    local pid="$1"
+    local task_id="${2:-unknown}"
+
+    if [[ -z "$pid" || "$pid" == "0" ]]; then
+        return 1
+    fi
+
+    # Try SIGTERM on the process group first (graceful)
+    if kill -0 "$pid" 2>/dev/null; then
+        log "Sending SIGTERM to process group of PID $pid (task: $task_id)"
+        kill -TERM -- -"$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null
+        # Wait up to 5 seconds for graceful shutdown
+        local wait_count=0
+        while kill -0 "$pid" 2>/dev/null && (( wait_count < 5 )); do
+            sleep 1
+            wait_count=$((wait_count + 1))
+        done
+    fi
+
+    # Force kill survivors
+    if kill -0 "$pid" 2>/dev/null; then
+        log "Force-killing process group of PID $pid (task: $task_id)"
+        kill -KILL -- -"$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null
+    fi
+
+    # Walk the tree for any that escaped the process group
+    pkill -P "$pid" 2>/dev/null
+    sleep 1
+    pkill -9 -P "$pid" 2>/dev/null
+
+    # Clean up the PID file
+    local project_pidfile
+    for project_pidfile in "$RUNNING_DIR"/*.pid; do
+        [[ -f "$project_pidfile" ]] || continue
+        local stored_pid
+        stored_pid=$(cat "$project_pidfile" 2>/dev/null)
+        if [[ "$stored_pid" == "$pid" ]]; then
+            rm -f "$project_pidfile"
+        fi
+    done
+}
+
 # ─── Project state checks ────────────────────────────────────────────────────
 
 is_project_running() {
@@ -595,31 +642,62 @@ WORKER RULES:
     # Run Claude
     local log_file="$LOGS_DIR/${task_id}.log"
     local exit_code=0
+    local max_turns
+    max_turns=$(task_field "$task_file" max_turns "200")
     write_task_status "$task_id" "running" "Claude session active" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
 
+    # ─── Heartbeat monitor (background) ───────────────────────
+    # Monitors log file growth every 60s. Records heartbeat to SQLite.
+    # If log stops growing for 10+ minutes, task is flagged as stuck.
+    local heartbeat_pid=0
+    (
+        local prev_size=0
+        while true; do
+            sleep 60
+            local cur_size=0
+            [[ -f "$log_file" ]] && cur_size=$(wc -c < "$log_file" 2>/dev/null || echo 0)
+            local pid_alive=1
+            # Record heartbeat via task-db if available
+            if [[ -f "$SCRIPT_DIR/task-db.py" ]]; then
+                python3 "$SCRIPT_DIR/task-db.py" heartbeat "$task_id" "$cur_size" "$pid_alive" 2>/dev/null
+            fi
+            # Also touch a progress file for simple monitoring
+            echo "$cur_size" > "$TASK_STATUS_DIR/${task_id}.progress" 2>/dev/null
+            prev_size=$cur_size
+        done
+    ) &
+    heartbeat_pid=$!
+
+    # ─── Run Claude in process group for clean cleanup ────────
+    # setsid creates a new process group. On timeout/kill, we can
+    # kill the entire group (Claude + children) with kill -PGID.
     if command -v script &>/dev/null && [[ "$(uname)" == "Darwin" ]]; then
-        script -q "$log_file" \
+        setsid script -q "$log_file" \
             "$CLAUDE_BIN" -p \
             --dangerously-skip-permissions \
-            --max-turns 200 \
+            --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
             "$task_prompt" \
             2>&1 || exit_code=$?
     elif command -v stdbuf &>/dev/null; then
-        stdbuf -oL "$CLAUDE_BIN" -p \
+        setsid stdbuf -oL "$CLAUDE_BIN" -p \
             --dangerously-skip-permissions \
-            --max-turns 200 \
+            --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
             "$task_prompt" \
             2>&1 | tee "$log_file" || exit_code=${PIPESTATUS[0]:-$?}
     else
-        "$CLAUDE_BIN" -p \
+        setsid "$CLAUDE_BIN" -p \
             --dangerously-skip-permissions \
-            --max-turns 200 \
+            --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
             "$task_prompt" \
             2>&1 | tee "$log_file" || exit_code=${PIPESTATUS[0]:-$?}
     fi
+
+    # Stop heartbeat monitor
+    kill "$heartbeat_pid" 2>/dev/null
+    wait "$heartbeat_pid" 2>/dev/null
 
     # Handle result
     if [[ $exit_code -eq 0 ]]; then
@@ -784,10 +862,26 @@ echo ""
 # Loop variables (declared outside loop — `local` only works in functions)
 status="" project="" queued="" running="" now="" idle_secs=""
 
+DAILY_BUDGET="${DAILY_BUDGET:-50}"  # $50/day default, override with env var
+
 while true; do
     CYCLE_COUNT=$((CYCLE_COUNT + 1))
     launched=0
     running=$(count_running)
+
+    # ─── Daily budget check ───────────────────────────────────
+    # Pause queue processing if daily spend exceeds budget.
+    if [[ -f "$SCRIPT_DIR/task-db.py" ]]; then
+        today_cost=$(python3 "$SCRIPT_DIR/task-db.py" cost-today 2>/dev/null || echo "0")
+        today_cost="${today_cost//\$/}"  # strip $ sign
+        if python3 -c "import sys; sys.exit(0 if float('${today_cost}') >= float('${DAILY_BUDGET}') else 1)" 2>/dev/null; then
+            if (( CYCLE_COUNT % 60 == 1 )); then  # log once per ~10 min, not every cycle
+                log "Daily budget reached (\$${today_cost}/\$${DAILY_BUDGET}). Queue paused."
+            fi
+            sleep "$POLL_INTERVAL"
+            continue
+        fi
+    fi
 
     # Scan for queued tasks, one per project, up to MAX_PARALLEL
     for f in "$TASKS_DIR"/*.json; do
