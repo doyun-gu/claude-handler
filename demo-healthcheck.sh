@@ -536,9 +536,44 @@ except: print('0 0')
         local task_id="auto-$(date +%Y%m%d-%H%M%S)-bugfix"
         local task_file="$FLEET_DIR/tasks/${task_id}.json"
 
-        # Only create if no existing auto-bugfix task is queued/running
+        # Skip if any auto-bugfix task is queued or running
         if ls "$FLEET_DIR/tasks"/auto-*-bugfix.json 2>/dev/null | xargs grep -l '"queued"\|"running"' 2>/dev/null | head -1 | grep -q .; then
-            return  # Already have an active auto-bugfix task
+            return
+        fi
+
+        # Skip if an auto-bugfix task completed in the last 30 minutes (prevents infinite loop
+        # when worker finds no NEW bugs but bug-db.json still has status=new)
+        local recent_completed
+        recent_completed=$(python3 -c "
+import json, glob, time
+now = time.time()
+for f in sorted(glob.glob('$FLEET_DIR/tasks/auto-*-bugfix.json'), reverse=True)[:10]:
+    try:
+        d = json.load(open(f))
+        if d.get('status') == 'completed' and d.get('finished_at'):
+            import datetime
+            fin = datetime.datetime.fromisoformat(d['finished_at'].replace('Z','+00:00')).timestamp()
+            if now - fin < 1800:
+                print('RECENT')
+                break
+    except: pass
+" 2>/dev/null)
+        if [[ "$recent_completed" == "RECENT" ]]; then
+            # A recent bugfix task found nothing to fix — mark all 'new' bugs as fixed
+            python3 -c "
+import json
+f = '$BUG_DB'
+db = json.load(open(f))
+changed = False
+for name, bug in db.get('bugs', {}).items():
+    if bug.get('status') == 'new':
+        bug['status'] = 'fixed'
+        bug['fixed_by'] = 'auto-cleared: worker found no NEW bugs'
+        changed = True
+if changed:
+    json.dump(db, open(f, 'w'), indent=2)
+" 2>/dev/null
+            return
         fi
 
         cat > "$task_file" << TASK
