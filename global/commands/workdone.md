@@ -47,7 +47,7 @@ Scan the conversation for unsaved memories. Look for:
 - **User**: new info about skills, role, goals
 - **Reference**: external tools, URLs, systems
 
-Only save things that are **non-obvious and useful across sessions**. Deduplicate against `~/.claude/projects/-Users-doyungu/memory/MEMORY.md`. Update existing memories rather than creating duplicates.
+Only save things that are **non-obvious and useful across sessions**. Deduplicate against the user's memory index (MEMORY.md). Update existing memories rather than creating duplicates.
 
 ## Step 4: Commit and push ALL touched projects
 
