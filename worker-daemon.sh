@@ -133,7 +133,7 @@ count_tasks() {
     # Fallback: queue manager (JSON)
     local result
     result=$(python3 "$QM" count-status "$1" 2>&1) || {
-        log_error "D-020" "Queue manager crash on count-status: ${result:0:100}"
+        log_error "D-020" "Queue manager crash on count-status: ${result:0:100}" >&2
         echo "0"
         return 1
     }
@@ -378,7 +378,7 @@ is_project_running() {
     if kill -0 "$pid" 2>/dev/null; then
         return 0  # Still running
     fi
-    log_error "D-004" "Stale PID file for $project (pid $pid dead) — auto-cleaning"
+    log_error "D-004" "Stale PID file for $project (pid $pid dead) — auto-cleaning" >&2
     rm -f "$pidfile"
     return 1  # Stale PID, cleaned up
 }
@@ -431,14 +431,14 @@ count_running() {
     for pidfile in "$RUNNING_DIR"/*.pid; do
         [[ -f "$pidfile" ]] || continue
         pid=$(read_pidfile "$pidfile") || {
-            log_error "D-005" "PID file race: $(basename "$pidfile") disappeared between check and read"
+            log_error "D-005" "PID file race: $(basename "$pidfile") disappeared between check and read" >&2
             rm -f "$pidfile"
             continue
         }
         if kill -0 "$pid" 2>/dev/null; then
             count=$((count + 1))
         else
-            log_error "D-004" "Stale PID file: $(basename "$pidfile") (pid $pid dead) — auto-cleaning"
+            log_error "D-004" "Stale PID file: $(basename "$pidfile") (pid $pid dead) — auto-cleaning" >&2
             rm -f "$pidfile"
         fi
     done
