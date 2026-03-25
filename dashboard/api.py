@@ -69,10 +69,36 @@ TASKS_DIR = FLEET_DIR / "tasks"
 REVIEW_DIR = FLEET_DIR / "review-queue"
 LOGS_DIR = FLEET_DIR / "logs"
 PROJECTS_FILE = FLEET_DIR / "projects.json"
+WORKERS_FILE = FLEET_DIR / "workers.json"
 EVENTS_FILE = FLEET_DIR / "events.json"
 REPLY_ACTIONS_DIR = FLEET_DIR / "reply-actions"
 SECRETS_DIR = FLEET_DIR / "secrets"
 STATIC_DIR = Path(__file__).parent
+
+# ── Machine definitions (static fleet config) ──────────
+MACHINE_DEFINITIONS = [
+    {
+        "id": "mac-mini",
+        "name": "Mac Mini",
+        "chip": "Apple M4",
+        "role": "Controller + Worker 1",
+        "os": "macOS",
+        "local": True,
+    },
+    {
+        "id": "dell-xps",
+        "name": "Dell XPS 15",
+        "chip": "i7-12700H",
+        "role": "Worker 2",
+        "os": "Ubuntu/WSL2",
+        "local": False,
+        "ssh_host": "dell-xps",
+    },
+]
+
+# SSH reachability cache for remote machines
+_ssh_cache: dict[str, tuple[bool, float]] = {}
+SSH_CACHE_TTL = 30  # seconds
 
 
 # ── Helpers ──────────────────────────────────────────────
@@ -335,6 +361,189 @@ async def get_system():
         "core_count": identity["core_count"],
         "commander_last_seen": _get_commander_last_seen(),
     }
+
+
+# ── Machine Fleet Endpoints ─────────────────────────────
+
+
+def _check_ssh(host: str) -> bool:
+    """Check SSH reachability, with caching."""
+    now = time.time()
+    cached = _ssh_cache.get(host)
+    if cached and (now - cached[1]) < SSH_CACHE_TTL:
+        return cached[0]
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes",
+             "-o", "StrictHostKeyChecking=no", host, "echo", "ok"],
+            capture_output=True, text=True, timeout=6,
+        )
+        online = result.returncode == 0 and "ok" in result.stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        online = False
+    _ssh_cache[host] = (online, now)
+    return online
+
+
+def _get_worker_ssh_host(worker_id: str) -> Optional[str]:
+    """Look up SSH host from workers.json or fall back to machine definitions."""
+    if WORKERS_FILE.exists():
+        try:
+            workers = json.loads(WORKERS_FILE.read_text())
+            for w in workers:
+                if w.get("name") == worker_id or w.get("ssh") == worker_id:
+                    return w.get("ssh", worker_id)
+        except (json.JSONDecodeError, OSError):
+            pass
+    for m in MACHINE_DEFINITIONS:
+        if m["id"] == worker_id and not m.get("local"):
+            return m.get("ssh_host", worker_id)
+    return None
+
+
+def _task_machine_route(task: dict) -> Optional[str]:
+    """Determine which machine a task ran on from route field or raw_json."""
+    route = task.get("route") or task.get("worker") or ""
+    if route:
+        return route
+    raw = task.get("raw_json")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError:
+            raw = {}
+    if isinstance(raw, dict):
+        return raw.get("route") or raw.get("worker") or None
+    return None
+
+
+def _count_completed_today(tasks: list, machine_id: Optional[str] = None,
+                           is_local: bool = True) -> int:
+    """Count tasks completed today, optionally filtered by machine.
+
+    For local machine: count tasks with no route or route matching machine_id.
+    For remote machine: only count tasks explicitly routed to it.
+    """
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    count = 0
+    for t in tasks:
+        status = t.get("status", "")
+        if status not in ("completed", "merged"):
+            continue
+        fin = t.get("finished_at") or t.get("completed_at") or t.get("merged_at") or ""
+        if today_str not in fin:
+            continue
+        if machine_id:
+            route = _task_machine_route(t)
+            if is_local:
+                if route and route != machine_id:
+                    continue
+            else:
+                if route != machine_id:
+                    continue
+        count += 1
+    return count
+
+
+def _find_running_task(tasks: list, machine_id: Optional[str] = None, is_local: bool = True) -> Optional[dict]:
+    """Find the currently running task for a specific machine.
+
+    For local machine: show tasks with no route or route matching machine_id.
+    For remote machine: only show tasks explicitly routed to it.
+    """
+    for t in tasks:
+        if t.get("status") != "running":
+            continue
+        route = _task_machine_route(t)
+        if machine_id:
+            if is_local:
+                # Local machine gets tasks with no route or matching route
+                if route and route != machine_id:
+                    continue
+            else:
+                # Remote machine only gets explicitly routed tasks
+                if route != machine_id:
+                    continue
+        return t
+    return None
+
+
+@app.get("/api/machines")
+async def get_machines():
+    """Status of all worker machines in the fleet."""
+    all_tasks_list = get_all_tasks()
+    if not all_tasks_list:
+        all_tasks_list = []
+        if TASKS_DIR.exists():
+            for f in TASKS_DIR.glob("*.json"):
+                try:
+                    all_tasks_list.append(json.loads(f.read_text()))
+                except (json.JSONDecodeError, OSError):
+                    pass
+
+    machines = []
+    for defn in MACHINE_DEFINITIONS:
+        machine: dict[str, Any] = {
+            "id": defn["id"],
+            "name": defn["name"],
+            "chip": defn["chip"],
+            "role": defn["role"],
+            "os": defn["os"],
+            "local": defn["local"],
+        }
+
+        if defn["local"]:
+            machine["online"] = True
+            machine["uptime"] = get_uptime()
+            cpu_pct = psutil.cpu_percent(interval=0.3)
+            mem = psutil.virtual_memory()
+            machine["cpu_percent"] = cpu_pct
+            machine["ram_used_gb"] = round(mem.used / (1024**3), 1)
+            machine["ram_total_gb"] = round(mem.total / (1024**3), 1)
+            machine["ram_percent"] = mem.percent
+            running = _find_running_task(all_tasks_list, defn["id"], is_local=True)
+            if running:
+                machine["current_task"] = {
+                    "slug": running.get("slug") or running.get("id", ""),
+                    "started_at": running.get("started_at", ""),
+                }
+            else:
+                machine["current_task"] = None
+            machine["completed_today"] = _count_completed_today(
+                all_tasks_list, defn["id"], is_local=True)
+            # If no routing info, all tasks on local machine count
+            if machine["completed_today"] == 0:
+                machine["completed_today"] = _count_completed_today(all_tasks_list)
+        else:
+            ssh_host = _get_worker_ssh_host(defn["id"])
+            if ssh_host:
+                online = _check_ssh(ssh_host)
+                machine["online"] = online
+                cached = _ssh_cache.get(ssh_host)
+                if cached:
+                    machine["last_checked"] = datetime.fromtimestamp(cached[1]).isoformat()
+            else:
+                machine["online"] = False
+                machine["last_checked"] = None
+            machine["cpu_percent"] = None
+            machine["ram_used_gb"] = None
+            machine["ram_total_gb"] = None
+            machine["ram_percent"] = None
+            machine["uptime"] = None
+            running = _find_running_task(all_tasks_list, defn["id"], is_local=False)
+            if running:
+                machine["current_task"] = {
+                    "slug": running.get("slug") or running.get("id", ""),
+                    "started_at": running.get("started_at", ""),
+                }
+            else:
+                machine["current_task"] = None
+            machine["completed_today"] = _count_completed_today(
+                all_tasks_list, defn["id"], is_local=False)
+
+        machines.append(machine)
+
+    return machines
 
 
 @app.get("/api/tasks")
