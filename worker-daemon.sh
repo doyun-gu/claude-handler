@@ -89,6 +89,84 @@ if [[ ! -x "$CLAUDE_BIN" ]]; then
     exit 1
 fi
 
+# ─── Remote workers ──────────────────────────────────────────────────────────
+# Workers are defined in ~/.claude-fleet/workers.json (optional).
+# Format: [{"name": "dell-xps", "ssh": "dell-xps", "claude_bin": "/home/doyungu/.local/bin/claude",
+#            "topics": ["engine","test","solver"], "project_paths": {
+#              "DPSpice-com": "/home/doyungu/Developer/dynamic-phasors/DPSpice-com"}}]
+# If the file doesn't exist, all tasks run locally.
+
+WORKERS_FILE="$FLEET_DIR/workers.json"
+HAS_REMOTE_WORKERS=false
+[[ -f "$WORKERS_FILE" ]] && HAS_REMOTE_WORKERS=true
+
+# Determine which worker should run a task (local or remote)
+# Returns: "local" or the worker SSH name (e.g., "dell-xps")
+route_task() {
+    local task_file="$1"
+    [[ "$HAS_REMOTE_WORKERS" == "false" ]] && { echo "local"; return; }
+
+    # Check explicit route in task JSON
+    local explicit_route
+    explicit_route=$(task_field "$task_file" route "")
+    if [[ -n "$explicit_route" ]]; then
+        echo "$explicit_route"
+        return
+    fi
+
+    # Auto-route by topic affinity
+    local slug_lower
+    slug_lower=$(echo "$(task_field "$task_file" slug "")" | tr '[:upper:]' '[:lower:]')
+
+    local worker
+    worker=$(python3 -c "
+import json, sys
+
+slug = '${slug_lower}'
+workers = json.load(open('${WORKERS_FILE}'))
+
+# Check each worker's topic affinity
+for w in workers:
+    for topic in w.get('topics', []):
+        if topic in slug:
+            print(w['ssh'])
+            sys.exit(0)
+
+# No match = run locally
+print('local')
+" 2>/dev/null) || worker="local"
+
+    echo "$worker"
+}
+
+# Get remote project path for a worker
+remote_project_path() {
+    local worker_ssh="$1" project_name="$2" local_path="$3"
+    [[ "$worker_ssh" == "local" ]] && { echo "$local_path"; return; }
+
+    local remote_path
+    remote_path=$(python3 -c "
+import json
+workers = json.load(open('${WORKERS_FILE}'))
+for w in workers:
+    if w['ssh'] == '${worker_ssh}':
+        print(w.get('project_paths', {}).get('${project_name}', ''))
+        break
+" 2>/dev/null) || remote_path=""
+
+    # Fallback: mirror the local path structure under ~/Developer
+    if [[ -z "$remote_path" ]]; then
+        remote_path="/home/doyungu/Developer/$(basename "$(dirname "$local_path")")/$(basename "$local_path")"
+    fi
+    echo "$remote_path"
+}
+
+# Check if a remote worker is reachable
+check_remote_worker() {
+    local worker_ssh="$1"
+    ssh -o ConnectTimeout=5 -o BatchMode=yes "$worker_ssh" "echo ok" &>/dev/null
+}
+
 # ─── Queue manager ────────────────────────────────────────────────────────────
 
 if [[ -f "$SCRIPT_DIR/fleet-brain.py" ]]; then
@@ -750,6 +828,176 @@ except Exception as e:
     fi
 }
 
+# ─── Run a task on a remote worker via SSH ────────────────────────────────────
+
+run_task_remote() {
+    local task_file="$1" worker_ssh="$2"
+
+    local task_id project_name project_path branch max_turns base_branch
+    task_id=$(task_field "$task_file" id)
+    project_name=$(task_field "$task_file" project_name "unknown")
+    project_path=$(task_field "$task_file" project_path)
+    branch=$(task_field "$task_file" branch)
+    max_turns=$(task_field "$task_file" max_turns "200")
+    base_branch=$(task_field "$task_file" base_branch "main")
+
+    # Resolve remote project path
+    local remote_path
+    remote_path=$(remote_project_path "$worker_ssh" "$project_name" "$project_path")
+
+    log "  Remote worker: $worker_ssh"
+    log "  Remote path:   $remote_path"
+    log "  Branch:        $branch"
+
+    local task_started_at
+    task_started_at=$(date +%s)
+    update_task_status "$task_file" "running"
+    write_task_status "$task_id" "running" "Running on $worker_ssh" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+
+    # Sync prompt file to remote worker
+    local prompt_file_ref
+    prompt_file_ref=$(task_field "$task_file" prompt_file "")
+    if [[ -n "$prompt_file_ref" ]]; then
+        local local_prompt="$TASKS_DIR/$prompt_file_ref"
+        if [[ -f "$local_prompt" ]]; then
+            ssh "$worker_ssh" "mkdir -p ~/.claude-fleet/tasks" 2>/dev/null
+            scp -q "$local_prompt" "$worker_ssh:~/.claude-fleet/tasks/" 2>/dev/null
+        fi
+    fi
+
+    # Sync task JSON to remote
+    scp -q "$task_file" "$worker_ssh:~/.claude-fleet/tasks/" 2>/dev/null
+
+    # Read prompt locally (for evaluator later)
+    local task_prompt=""
+    if [[ -n "$prompt_file_ref" && -f "$TASKS_DIR/$prompt_file_ref" ]]; then
+        task_prompt=$(cat "$TASKS_DIR/$prompt_file_ref")
+    else
+        task_prompt=$(task_field "$task_file" prompt "")
+    fi
+
+    # Build worker prompt (same as local but notes remote execution)
+    local queued_count
+    queued_count=$(count_tasks "queued")
+    local worker_prompt="You are running as a WORKER on ${worker_ssh}. Task ID: ${task_id}. Branch: ${branch}.
+
+WORKER RULES:
+1. You are FULLY AUTONOMOUS. Make good decisions without asking questions.
+2. All work goes on branch: ${branch}. NEVER push to main.
+3. Commit frequently with descriptive messages.
+4. When DONE: push the branch, open a PR with gh pr create, write a summary to ~/.claude-fleet/logs/${task_id}.summary.md.
+5. Update ~/.claude-fleet/tasks/${task_id}.json status to completed or failed.
+6. Use /review before pushing. Use /qa if testing a web app.
+7. There are ${queued_count} more tasks in the queue. Work efficiently."
+
+    local log_file="$LOGS_DIR/${task_id}.log"
+    local exit_code=0
+
+    # Run Claude on remote worker via SSH
+    # The remote machine has Claude, the project repo, and the prompt file
+    log "  Launching Claude on $worker_ssh..."
+    ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 "$worker_ssh" "
+        export PATH=\"\$HOME/.local/bin:\$HOME/.bun/bin:/usr/local/bin:\$PATH\"
+        cd '${remote_path}' || exit 1
+        git fetch origin 2>/dev/null
+        git checkout -b '${branch}' 'origin/${base_branch}' 2>/dev/null || git checkout '${branch}' 2>/dev/null || git checkout -b '${branch}' 2>/dev/null
+        git submodule update --init 2>/dev/null
+
+        PROMPT=\$(cat ~/.claude-fleet/tasks/${prompt_file_ref:-${task_id}.prompt} 2>/dev/null)
+        [[ -z \"\$PROMPT\" ]] && PROMPT='${task_prompt:0:500}'
+
+        claude -p \\
+            --dangerously-skip-permissions \\
+            --max-turns ${max_turns} \\
+            --append-system-prompt '$(echo "$worker_prompt" | sed "s/'/'\\\\''/g")' \\
+            \"\$PROMPT\"
+    " 2>&1 | tee "$log_file" || exit_code=${PIPESTATUS[0]:-$?}
+
+    # Fetch results back (the remote pushed the branch, we fetch it)
+    log "  Fetching results from $worker_ssh..."
+    if [[ -d "$project_path" ]]; then
+        (cd "$project_path" && git fetch origin "$branch" 2>/dev/null) || true
+    fi
+
+    # Collect summary if remote wrote one
+    ssh "$worker_ssh" "cat ~/.claude-fleet/logs/${task_id}.summary.md 2>/dev/null" > "$LOGS_DIR/${task_id}.summary.md" 2>/dev/null || true
+
+    # Handle result (same as local: evaluator, PR, review-queue)
+    if [[ $exit_code -eq 0 ]]; then
+        ok "Task $task_id completed on $worker_ssh"
+        write_task_status "$task_id" "completed" "Completed on $worker_ssh" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+
+        local pr_url=""
+        if [[ -d "$project_path" ]]; then
+            pr_url=$(cd "$project_path" && gh pr list --head "$branch" --json url -q '.[0].url' 2>/dev/null) || pr_url=""
+        fi
+        if [[ -n "$pr_url" ]]; then
+            update_task_status "$task_file" "completed" "pr_url=$pr_url"
+        else
+            update_task_status "$task_file" "completed"
+        fi
+
+        # Notifications
+        "$HOME/Developer/claude-handler/fleet-notify.sh" --task-complete "$task_id" 2>/dev/null &
+
+        # Auto-merge safe PRs
+        local auto_merged=false
+        if [[ -n "$pr_url" ]]; then
+            try_auto_merge "$task_file" "$task_id" "$branch" "$project_path" && auto_merged=true
+        fi
+
+        if [[ "$auto_merged" == "false" ]]; then
+            cat > "$REVIEW_DIR/${task_id}-completed.md" << REVIEW_EOF
+---
+task_id: ${task_id}
+project: $(basename "$project_path")
+type: completed
+worker: ${worker_ssh}
+priority: normal
+created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+---
+
+## Task Completed (on ${worker_ssh})
+
+**Branch:** ${branch}
+**Worker:** ${worker_ssh}
+**Task:** $(echo "$task_prompt" | head -1)
+
+Check the PR and summary:
+- Summary: ~/.claude-fleet/logs/${task_id}.summary.md
+- Run \`/worker-review\` to review and merge.
+REVIEW_EOF
+        fi
+    else
+        local error_msg="exit code $exit_code on $worker_ssh"
+        log_error "D-013" "Claude exited non-zero on $worker_ssh for task $task_id (exit $exit_code)"
+        write_task_status "$task_id" "failed" "$error_msg" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+        update_task_status "$task_file" "failed" "error_message=$error_msg"
+
+        "$HOME/Developer/claude-handler/fleet-notify.sh" --task-failed "$task_id" 2>/dev/null &
+
+        cat > "$REVIEW_DIR/${task_id}-failed.md" << REVIEW_EOF
+---
+task_id: ${task_id}
+project: $(basename "$project_path")
+type: failed
+worker: ${worker_ssh}
+priority: high
+created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+---
+
+## Task Failed (on ${worker_ssh})
+
+**Branch:** ${branch}
+**Worker:** ${worker_ssh}
+**Exit code:** ${exit_code}
+**Task:** $(echo "$task_prompt" | head -1)
+
+Check the log: ~/.claude-fleet/logs/${task_id}.log
+REVIEW_EOF
+    fi
+}
+
 # ─── Run a single task ────────────────────────────────────────────────────────
 
 run_task() {
@@ -813,14 +1061,30 @@ run_task() {
     local work_dir="$project_path"
     [[ -n "$subdir" ]] && work_dir="$project_path/$subdir"
 
-    # Validate project path exists
+    # ─── Route decision: local or remote worker ──────────────
+    local target_worker
+    target_worker=$(route_task "$task_file")
+
+    if [[ "$target_worker" != "local" ]]; then
+        # Delegate to remote worker
+        if check_remote_worker "$target_worker"; then
+            log "Routing task $task_id to remote worker: $target_worker"
+            run_task_remote "$task_file" "$target_worker"
+            return $?
+        else
+            warn "Remote worker $target_worker unreachable — falling back to local"
+            target_worker="local"
+        fi
+    fi
+
+    # Validate project path exists (local execution only)
     if [[ ! -d "$project_path" ]]; then
         log_error "D-011" "Project path does not exist: $project_path (task: $task_id)"
         update_task_status "$task_file" "failed" "error_message=Project path not found: $project_path"
         return 1
     fi
 
-    log "Starting task: $task_id"
+    log "Starting task: $task_id (local)"
     log "  Project: $project_path"
     log "  Branch:  $branch"
     log "  Est:     $estimated_time"
