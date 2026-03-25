@@ -12,6 +12,55 @@ The Worker is a separate Claude Code session running on the Mac Mini via `worker
 
 If the worker daemon is running, prefer queue mode — it handles task chaining, logging, and review-queue updates automatically.
 
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph Commander["MacBook Pro (Commander)"]
+        User([User]) --> Dispatch["/dispatch command"]
+        Dispatch --> WritePrompt["Write .prompt file"]
+        Dispatch --> WriteJSON["Write .json manifest"]
+        WritePrompt --> Validate["Validate JSON + prompt"]
+        WriteJSON --> Validate
+        Validate --> RegLocal["task-db.py add (local SQLite)"]
+        RegLocal --> BackupLog["Copy to dispatch-log/"]
+    end
+
+    subgraph Sync["Sync to Mac Mini"]
+        BackupLog --> SCP1["scp .prompt file FIRST"]
+        SCP1 --> SCP2["scp .json manifest"]
+        SCP2 --> RegRemote["task-db.py add (Mac Mini SQLite)"]
+    end
+
+    subgraph Worker["Mac Mini (Worker)"]
+        Daemon["worker-daemon.sh"] -->|"polls every 30s"| Claim["task-db.py claim (SQLite atomic)"]
+        Claim -->|"priority + deps resolved"| ReadPrompt["Read .prompt file"]
+        ReadPrompt --> GitBranch["git checkout -b worker/..."]
+        GitBranch --> Claude["Claude Code session (autonomous)"]
+        Claude -->|"on completion"| PushPR["Push branch + gh pr create"]
+        PushPR --> ReviewQueue["Write to review-queue/"]
+        ReviewQueue --> StatusUpdate["task-db.py status completed"]
+        StatusUpdate -->|"loop"| Claim
+    end
+
+    RegRemote --> Daemon
+
+    subgraph Databases["Data Layer"]
+        TasksDB[("tasks.db\n(daemon primary)")]
+        FleetDB[("fleet.db\n(dashboard read replica)")]
+        JSONFiles["tasks/*.json\n(sync bridge)"]
+        TasksDB ---|"source of truth"| JSONFiles
+        JSONFiles ---|"sync every 30s"| FleetDB
+    end
+```
+
+### Key principles:
+- **SQLite-primary**: daemon claims tasks atomically from `tasks.db`, not by scanning JSON
+- **Prompt separation**: `.prompt` files (plain text) alongside `.json` manifests (metadata only)
+- **Two databases**: `tasks.db` (daemon truth) and `fleet.db` (dashboard read replica synced from JSON)
+- **Priority ordering**: higher `priority` value = runs first. User tasks 100+, normal 0-49
+- **Dependency chains**: `depends_on` array blocks task until dependencies complete
+
 ## Steps
 
 ### Step 0: Read fleet config
@@ -86,12 +135,23 @@ Write the following JSON to `~/.claude-fleet/tasks/${TASK_ID}.json` using the Wr
   "subdir": "<subdir_or_null>",
   "dispatched_at": "<ISO 8601 timestamp>",
   "status": "<queued_or_dispatched>",
+  "base_branch": "<base_branch>",
   "prompt_file": "${TASK_ID}.prompt",
   "budget_usd": <budget>,
+  "max_turns": 200,
   "permission_mode": "<permission>",
-  "tmux_session": "${TMUX_SESSION}"
+  "tmux_session": "${TMUX_SESSION}",
+  "priority": <0-100>,
+  "depends_on": [],
+  "group": "<optional_group_name>"
 }
 ```
+
+**Priority values:**
+- `100+` — P0 user-requested tasks (always first)
+- `50-99` — high priority features
+- `10-49` — normal tasks
+- `0-9` — P2 backlog / maintenance
 
 **Step 4c: Create a dispatch-log backup copy.**
 
@@ -111,6 +171,14 @@ test -s ~/.claude-fleet/tasks/${TASK_ID}.prompt || echo "ERROR: prompt file is e
 
 If validation fails, fix the issue before continuing. Never dispatch a task with an empty or missing prompt.
 
+**Step 4e: Register in local SQLite database.**
+
+The daemon claims tasks from SQLite, not JSON. Registration is mandatory.
+
+```bash
+python3 ~/Developer/claude-handler/task-db.py add ~/.claude-fleet/tasks/${TASK_ID}.json
+```
+
 **Status values:**
 - `queued` — waiting for the worker daemon to pick it up
 - `dispatched` — sent directly via SSH (immediate mode)
@@ -128,6 +196,14 @@ If validation fails, fix the issue before continuing. Never dispatch a task with
 scp ~/.claude-fleet/tasks/${TASK_ID}.prompt mac-mini:~/.claude-fleet/tasks/
 scp ~/.claude-fleet/tasks/${TASK_ID}.json mac-mini:~/.claude-fleet/tasks/
 ```
+
+**Step 5b: Register in Mac Mini's SQLite database.**
+
+```bash
+ssh mac-mini "python3 ~/Developer/claude-handler/task-db.py add ~/.claude-fleet/tasks/${TASK_ID}.json"
+```
+
+Without this step, the daemon cannot claim the task. It only reads from SQLite.
 
 ### Step 6a: Queue mode (daemon handles execution)
 

@@ -35,20 +35,24 @@ graph TB
         Supervisor[Fleet Supervisor<br/>launchd] --> Daemon[Worker Daemon]
         Supervisor --> Health[Health Checker]
         Supervisor --> Dashboard[Fleet Dashboard<br/>:3003]
-        Daemon --> |picks up tasks| Queue[(Task Queue<br/>~/.claude-fleet/tasks/)]
-        Daemon --> |runs| WorkerClaude[Claude Code<br/>autonomous]
-        WorkerClaude --> |opens| PR[GitHub PR]
-        Health --> |auto-heals| Services[Project Services]
-        Health --> |logs| BugDB[(Bug Database)]
+        Daemon -->|"task-db.py claim<br/>(SQLite atomic)"| TasksDB[(tasks.db<br/>SQLite primary)]
+        Daemon -->|runs| WorkerClaude[Claude Code<br/>autonomous]
+        WorkerClaude -->|opens| PR[GitHub PR]
+        Health -->|auto-heals| Services[Project Services]
+        Health -->|logs| BugDB[(Bug Database)]
+        TasksDB ---|sync| JSON[tasks/*.json]
+        JSON ---|read| FleetDB[(fleet.db<br/>dashboard)]
     end
 
-    Dispatch --> |SSH + JSON| Queue
-    PR --> |review| Review
-    Queue --> |status| Fleet
+    Dispatch -->|"scp .prompt + .json<br/>task-db.py add"| TasksDB
+    PR -->|review| Review
+    FleetDB -->|status| Fleet
 
     style Commander fill:#f0f9ff,stroke:#3b82f6
     style Worker fill:#f0fdf4,stroke:#22c55e
 ```
+
+> **Deep dive:** See [docs/DISPATCH-ARCHITECTURE.md](docs/DISPATCH-ARCHITECTURE.md) for the full dispatch flow, data layer, claiming logic, and task file format.
 
 ## Process Supervision
 
