@@ -125,21 +125,7 @@ def _init_schema(conn: sqlite3.Connection) -> None:
 
         CREATE INDEX IF NOT EXISTS idx_heal_timestamp ON auto_heal_log(timestamp);
     """)
-
-    # Add LOC columns if missing (schema migration)
-    _migrate_loc_columns(conn)
-
     conn.commit()
-
-
-def _migrate_loc_columns(conn: sqlite3.Connection) -> None:
-    """Add lines_added/lines_removed columns to tasks table if missing."""
-    cursor = conn.execute("PRAGMA table_info(tasks)")
-    columns = {row[1] for row in cursor.fetchall()}
-    if "lines_added" not in columns:
-        conn.execute("ALTER TABLE tasks ADD COLUMN lines_added INTEGER DEFAULT 0")
-    if "lines_removed" not in columns:
-        conn.execute("ALTER TABLE tasks ADD COLUMN lines_removed INTEGER DEFAULT 0")
 
 
 # ── Migration: JSON → SQLite ──────────────────────────────
@@ -904,70 +890,6 @@ def get_auto_heal_log(limit: int = 50) -> list[dict]:
         "SELECT * FROM auto_heal_log ORDER BY timestamp DESC LIMIT ?",
         (limit,)
     ).fetchall()
-    return [dict(row) for row in rows]
-
-
-# ── LOC (Lines of Code) Stats ────────────────────────────
-
-
-def get_loc_history() -> dict:
-    """Get lines added/removed aggregated by today/week/month, broken down by project."""
-    conn = get_conn()
-
-    periods = {
-        "today": "DATE(finished_at) = DATE('now')",
-        "week": "DATE(finished_at) >= DATE('now', 'weekday 1', '-7 days')",
-        "month": "DATE(finished_at) >= DATE('now', 'start of month')",
-    }
-
-    result = {}
-    for period, where in periods.items():
-        rows = conn.execute(f"""
-            SELECT project_name,
-                   COALESCE(SUM(lines_added), 0) as added,
-                   COALESCE(SUM(lines_removed), 0) as removed
-            FROM tasks
-            WHERE status IN ('completed', 'merged')
-              AND finished_at IS NOT NULL AND finished_at != ''
-              AND {where}
-            GROUP BY project_name
-        """).fetchall()
-        total_added = sum(r["added"] for r in rows)
-        total_removed = sum(r["removed"] for r in rows)
-        by_project = {
-            r["project_name"]: {"added": r["added"], "removed": r["removed"]}
-            for r in rows if r["project_name"]
-        }
-        result[period] = {
-            "added": total_added,
-            "removed": total_removed,
-            "net": total_added - total_removed,
-            "by_project": by_project,
-        }
-    return result
-
-
-def update_task_loc(task_id: str, lines_added: int, lines_removed: int) -> None:
-    """Update LOC stats for a specific task."""
-    conn = get_conn()
-    conn.execute(
-        "UPDATE tasks SET lines_added = ?, lines_removed = ? WHERE id = ?",
-        (lines_added, lines_removed, task_id),
-    )
-    conn.commit()
-
-
-def get_tasks_missing_loc() -> list[dict]:
-    """Get completed/merged tasks that have no LOC data yet."""
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT id, project_name, project_path, branch, base_branch
-        FROM tasks
-        WHERE status IN ('completed', 'merged')
-          AND (lines_added IS NULL OR lines_added = 0)
-          AND (lines_removed IS NULL OR lines_removed = 0)
-          AND branch IS NOT NULL AND branch != ''
-    """).fetchall()
     return [dict(row) for row in rows]
 
 

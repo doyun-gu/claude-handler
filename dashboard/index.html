@@ -276,79 +276,6 @@ body {
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
 }
 
-/* ── LOC Summary ──────────────────────── */
-.loc-summary {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-subtle);
-  font-size: 11px;
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  color: var(--text-dim);
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.loc-added { color: var(--completed); }
-.loc-removed { color: var(--failed); }
-.loc-net { color: var(--text); font-weight: 600; }
-.loc-empty { font-style: italic; }
-
-/* ── Projects Table ──────────────────── */
-.projects-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-.projects-table th {
-  text-align: left;
-  padding: 8px 12px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 1px solid var(--border);
-}
-.projects-table th.right, .projects-table td.right {
-  text-align: right;
-}
-.projects-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
-  font-size: 11px;
-}
-.projects-table tr:last-child td { border-bottom: none; }
-.projects-table tr:hover td { background: var(--bg-hover); }
-.projects-table .proj-name {
-  font-weight: 600;
-  color: var(--text-bright);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-size: 12px;
-}
-.projects-table .loc-bar {
-  height: 4px;
-  border-radius: 2px;
-  background: var(--border);
-  position: relative;
-  min-width: 60px;
-}
-.projects-table .loc-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--completed);
-  position: absolute;
-  left: 0;
-  top: 0;
-}
-.worker-contrib {
-  font-size: 10px;
-  color: var(--text-dim);
-  margin-top: 2px;
-}
-.worker-contrib .added { color: var(--completed); }
-.worker-contrib .removed { color: var(--failed); }
-
 /* ── Kanban Pipeline ───────────────────── */
 .pipeline-label {
   font-size: 11px;
@@ -1015,7 +942,6 @@ tr:hover td { background: var(--bg-hover); }
         <span class="history-card-total" id="hist-today">--</span>
       </div>
       <div class="history-breakdown" id="hist-today-breakdown"></div>
-      <div class="loc-summary" id="loc-today"></div>
     </div>
     <div class="history-card">
       <div class="history-card-header">
@@ -1023,7 +949,6 @@ tr:hover td { background: var(--bg-hover); }
         <span class="history-card-total" id="hist-week">--</span>
       </div>
       <div class="history-breakdown" id="hist-week-breakdown"></div>
-      <div class="loc-summary" id="loc-week"></div>
     </div>
     <div class="history-card">
       <div class="history-card-header">
@@ -1031,21 +956,6 @@ tr:hover td { background: var(--bg-hover); }
         <span class="history-card-total" id="hist-month">--</span>
       </div>
       <div class="history-breakdown" id="hist-month-breakdown"></div>
-      <div class="loc-summary" id="loc-month"></div>
-    </div>
-  </div>
-
-  <!-- Projects LOC -->
-  <div class="section-box collapsed" id="projects-section">
-    <div class="section-box-header" onclick="toggleSection('projects-section')">
-      <div>
-        <span class="section-label">Projects</span>
-        <span class="badge-count" id="projects-count">0</span>
-      </div>
-      <span class="toggle" id="projects-toggle">[show]</span>
-    </div>
-    <div class="section-box-body" id="projects-body">
-      <div class="empty">Loading...</div>
     </div>
   </div>
 
@@ -1405,84 +1315,6 @@ function renderBreakdown(elId, byProject) {
   el.innerHTML = entries.map(function([name, count]) {
     return '<span class="history-tag">' + esc(name) + ' ' + count + '</span>';
   }).join('');
-}
-
-function formatLoc(n) {
-  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
-  return String(n);
-}
-
-function renderLocSummary(locData) {
-  var periods = [
-    { id: 'loc-today', key: 'today' },
-    { id: 'loc-week', key: 'week' },
-    { id: 'loc-month', key: 'month' },
-  ];
-  for (var i = 0; i < periods.length; i++) {
-    var el = document.getElementById(periods[i].id);
-    var d = locData[periods[i].key];
-    if (!d || (d.added === 0 && d.removed === 0)) {
-      el.innerHTML = '<span class="loc-empty">no LOC data</span>';
-      continue;
-    }
-    var sign = d.net >= 0 ? '+' : '';
-    el.innerHTML =
-      '<span class="loc-added">+' + formatLoc(d.added) + '</span>' +
-      '<span class="loc-removed">-' + formatLoc(d.removed) + '</span>' +
-      '<span class="loc-net">net ' + sign + formatLoc(d.net) + '</span>';
-  }
-}
-
-function renderProjectsLoc(projects) {
-  var el = document.getElementById('projects-body');
-  var countEl = document.getElementById('projects-count');
-  countEl.textContent = projects.length;
-
-  // Always show projects section
-  document.getElementById('projects-section').style.display = '';
-
-  if (projects.length === 0) {
-    el.innerHTML = '<div class="empty">No projects registered</div>';
-    return;
-  }
-
-  var maxLoc = Math.max.apply(null, projects.map(function(p) { return p.loc; }));
-  if (maxLoc === 0) maxLoc = 1;
-
-  var html = '<table class="projects-table">';
-  html += '<thead><tr>';
-  html += '<th>Project</th>';
-  html += '<th class="right">LOC</th>';
-  html += '<th>Distribution</th>';
-  html += '<th class="right">Files</th>';
-  html += '<th class="right">Docs</th>';
-  html += '<th class="right">Worker +/-</th>';
-  html += '</tr></thead><tbody>';
-
-  for (var i = 0; i < projects.length; i++) {
-    var p = projects[i];
-    var pct = Math.round((p.loc / maxLoc) * 100);
-    var workerHtml = '';
-    if (p.worker_added > 0 || p.worker_removed > 0) {
-      workerHtml = '<span class="added">+' + formatLoc(p.worker_added) + '</span> / ' +
-                   '<span class="removed">-' + formatLoc(p.worker_removed) + '</span>';
-    } else {
-      workerHtml = '--';
-    }
-
-    html += '<tr>';
-    html += '<td class="proj-name">' + esc(p.name) + '</td>';
-    html += '<td class="right">' + formatLoc(p.loc) + '</td>';
-    html += '<td><div class="loc-bar"><div class="loc-bar-fill" style="width:' + pct + '%"></div></div></td>';
-    html += '<td class="right">' + p.files + '</td>';
-    html += '<td class="right">' + p.docs + '</td>';
-    html += '<td class="right">' + workerHtml + '</td>';
-    html += '</tr>';
-  }
-
-  html += '</tbody></table>';
-  el.innerHTML = html;
 }
 
 function renderPipeline(queueData) {
@@ -2243,25 +2075,14 @@ async function refreshCharts() {
 
 async function refreshStats() {
   try {
-    const [analytics, history, locData] = await Promise.all([
+    const [analytics, history] = await Promise.all([
       api('/api/stats/analytics'),
       api('/api/stats/task-history'),
-      api('/api/stats/loc-history'),
     ]);
     renderStatCards(analytics, history);
     renderHistoryCards(history);
-    renderLocSummary(locData);
   } catch (e) {
     console.error('Stats failed:', e);
-  }
-}
-
-async function refreshProjectsLoc() {
-  try {
-    var projects = await api('/api/stats/projects-loc');
-    renderProjectsLoc(projects);
-  } catch (e) {
-    console.error('Projects LOC failed:', e);
   }
 }
 
@@ -2309,11 +2130,9 @@ async function refresh() {
 refresh();
 refreshStats();
 refreshCharts();
-refreshProjectsLoc();
 setInterval(refresh, REFRESH);
 setInterval(refreshStats, 30000);
 setInterval(refreshCharts, 60000);
-setInterval(refreshProjectsLoc, 120000); // Every 2 min (git LOC counts are slow)
 setInterval(updateTimestamp, 1000);
 </script>
 </body>
