@@ -7,7 +7,10 @@ Framework that turns Claude Code into a Technical Co-Founder with an optional du
 ```
 claude-handler/
 ├── CLAUDE.md                          # This file — meta docs for the repo itself
+├── CHANGELOG.md                       # Release history (Keep a Changelog format)
+├── VERSION                            # Current version (semver)
 ├── README.md                          # User-facing documentation
+├── release.sh                         # Cut a versioned release (tag + GitHub release)
 ├── install.sh                         # Interactive installer (Commander/Worker role)
 ├── install-launchd.sh                 # Generate LaunchAgent from template
 ├── uninstall.sh                       # Removes symlinks, restores backups
@@ -53,6 +56,9 @@ claude-handler/
 | `demo-healthcheck.sh` | Health checks, log scanning, bug DB, auto-heal. Dynamic IP detection. |
 | `fleet-notify.sh` | Gmail notifications with reply-to-action (merge/fix/skip/queue). |
 | `config.example/` | Example configs showing format without real credentials. |
+| `release.sh` | Cut a versioned release — updates CHANGELOG, tags, pushes, creates GitHub release. |
+| `CHANGELOG.md` | Full release history in Keep a Changelog format. |
+| `VERSION` | Single-line semver string (e.g. `0.5.0`). |
 
 ## Dev Commands
 
@@ -60,6 +66,9 @@ claude-handler/
 ./install.sh           # Install (interactive — choose Commander/Worker)
 ./install-launchd.sh   # Install LaunchAgent (Worker only)
 ./uninstall.sh         # Uninstall (remove symlinks, restore backups)
+./release.sh           # Cut a release (reads VERSION, updates CHANGELOG, tags, pushes)
+./release.sh --dry-run # Preview release without committing
+./release.sh 0.6.0     # Release with explicit version override
 ```
 
 ## User Profile
