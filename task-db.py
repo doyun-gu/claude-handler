@@ -86,6 +86,7 @@ def init_db():
             eval_rounds INTEGER DEFAULT 0,
             eval_score INTEGER DEFAULT 0,
             eval_cost_usd REAL DEFAULT 0.0,
+            route TEXT DEFAULT '',
             created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
             updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
         );
@@ -120,6 +121,7 @@ def init_db():
         ("eval_rounds", "INTEGER", "0"),
         ("eval_score", "INTEGER", "0"),
         ("eval_cost_usd", "REAL", "0.0"),
+        ("route", "TEXT", "''"),
     ]:
         try:
             db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {coltype} DEFAULT {default}")
@@ -325,7 +327,8 @@ def update_status(task_id, status, **kwargs):
 
     for key, val in kwargs.items():
         if key in ("pr_url", "error_message", "pid", "pgid", "cost_usd",
-                   "eval_result", "eval_rounds", "eval_score", "eval_cost_usd"):
+                   "eval_result", "eval_rounds", "eval_score", "eval_cost_usd",
+                   "route"):
             sets.append(f"{key} = ?")
             vals.append(val)
 
@@ -664,8 +667,8 @@ def add_from_json(json_path):
             status, prompt, prompt_file, budget_usd, max_turns,
             permission_mode, tmux_session, base_branch, priority,
             depends_on, group_name, retry_count, max_retries,
-            dispatched_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            dispatched_at, route
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         task_id,
         d.get("slug", ""),
@@ -687,6 +690,7 @@ def add_from_json(json_path):
         d.get("retry_count", 0),
         d.get("max_retries", 3),
         d.get("dispatched_at", ""),
+        d.get("route", ""),
     ))
     db.commit()
     db.close()
