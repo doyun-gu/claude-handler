@@ -585,7 +585,7 @@ Time: ~1 hour
 
 ```
 Prerequisites: Level 1 working reliably for 2+ weeks
-Time: ~2 hours
+Time: ~2 days
 
 1. Add "machines" section to projects.json
 2. Add capability tags to task manifests
@@ -672,3 +672,86 @@ for m in dell-xps worker-3; do ssh $m "cd ~/Developer/*/ && git fetch origin"; d
 | Sync | Git | NFS, Syncthing, rsync | Already using git, branches isolate work |
 | Monitoring | File-based + SSH | Prometheus, Datadog | Proportional to fleet size |
 | Deployment | SSH + bash | Docker, K8s, Nomad | Minimal overhead, works everywhere |
+
+---
+
+## Scaling Research: What Breaks at Each Level
+
+Based on real-world fleet scaling patterns and enterprise multi-agent deployments (2024-2026).
+
+### Task Queue Upgrade Path
+
+| System | Best at | Breaks at | Migration effort |
+|--------|---------|-----------|-----------------|
+| **SQLite + WAL** (current) | 1-3 workers, single writer | Multi-writer contention | -- |
+| **SQLite + Litestream** | 1-3 workers + backup | Still single writer | 30 min (add Litestream binary) |
+| **PostgreSQL SKIP LOCKED** | 3-10 workers | 50+ workers polling | 1 day (swap driver in task-db.py) |
+| **NATS JetStream** | 5-50 workers + pub/sub | New paradigm to learn | 2-3 days |
+| **RabbitMQ** | 10-100 workers + routing | Operational complexity | 1 week |
+
+**PostgreSQL `SELECT ... FOR UPDATE SKIP LOCKED`** is the strongest next step. Same SQL, atomic claiming, zero race conditions, plus `LISTEN/NOTIFY` for instant dispatch (no more 30s polling).
+
+### Orchestration Upgrade Path
+
+| Scale | Tool | Why |
+|-------|------|-----|
+| 2-3 machines | SSH scripts (current) | Works fine |
+| 4-7 machines | **Ansible** | Provisioning, config management, version consistency across machines |
+| 8-15 machines | **Nomad** (HashiCorp) | Single binary, 30-min setup. Handles non-containerized workloads natively (critical for Claude agent processes) |
+| 15+ machines | **K3s** (lightweight K8s) | Only if workloads become containerized |
+
+**Key signal to upgrade:** When you SSH into the wrong machine or forget which machine is running what, you've outgrown manual SSH.
+
+### Monitoring Upgrade Path
+
+| Scale | Tool | Setup time |
+|-------|------|-----------|
+| 2-3 machines | File-based health + dashboard (current) | Done |
+| 4-7 machines | **Uptime Kuma** | 10 min (single Docker container, push/pull monitoring, alerts via email/Slack) |
+| 7-15 machines | **VictoriaMetrics + Grafana** | 2-3 hours (Prometheus-compatible, lower resource usage) |
+| 15+ machines | **Prometheus + Grafana + AlertManager** | 1 day |
+
+**Key metrics for AI agent fleets:**
+- Tasks completed per hour per machine
+- Average task duration (trend over time)
+- API cost per task
+- Machine utilization (idle machines = wasted money)
+- Failure rate by machine (hardware problems surface here)
+- Queue depth over time (growing = need more workers)
+
+### Shared Filesystem Upgrade Path
+
+| Scale | Tool | Use case |
+|-------|------|----------|
+| 2-3 machines | Git + rsync (current) | Code repos, config |
+| 3-5 machines | **Syncthing** | Fleet state dir (`~/.claude-fleet/`) auto-sync between machines |
+| 5-10 machines | **NFS** on controller | Shared build caches (node_modules, pip, compiled artifacts) |
+| 10+ machines | **MinIO** (S3-compatible) | Artifacts, large files, case libraries |
+
+**Rule:** Never share git working directories over NFS. Each machine clones its own copy. Share artifacts and state, not source trees.
+
+### Security Upgrade Path
+
+| Scale | SSH | Secrets | Network |
+|-------|-----|---------|---------|
+| 2-3 | Manual Ed25519 keys | `.env` files (gitignored) | LAN / Tailscale |
+| 4-7 | **Tailscale SSH** (no key management) | **SOPS + age** (encrypted in git) | Tailscale mesh |
+| 8+ | **SSH certificates** (Smallstep, auto-expire) | **Vault or Infisical** (dynamic secrets) | Tailscale + ACL policies |
+
+### Cost Model at Scale
+
+| Fleet size | Setup | Monthly cost estimate |
+|------------|-------|----------------------|
+| 2 (current) | MacBook Pro + Mac Mini M4 | ~$15-20 power + API |
+| 3 (+ Dell XPS) | + Dell XPS 15 as Worker 2 | ~$25-30 power + API |
+| 5 | 1 Commander + 4 Mac Mini Workers | ~$60-80 power + $200-500 API |
+| 10 | 3 Mac Minis + 7 cloud spot VMs | ~$40 power + $150-300 cloud + $500-1000 API |
+
+**The dominant cost at scale is Anthropic API usage, not infrastructure.** At 10 workers running continuously, API costs will be 5-10x hardware costs.
+
+### When NOT to Scale
+
+- If any machine is idle >60% of the time, you have excess capacity
+- Adding machines doesn't help if the bottleneck is API rate limits
+- More machines = more maintenance. Only add when queue wait time is unacceptable
+- 2 machines running 24/7 can process ~80-100 tasks/day. That's a lot.
