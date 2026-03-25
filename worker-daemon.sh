@@ -928,24 +928,44 @@ WORKER RULES:
     local exit_code=0
 
     # Run Claude on remote worker via SSH
-    # The remote machine has Claude, the project repo, and the prompt file
+    # Write a self-contained script to remote, then execute it.
+    # This avoids all quoting/escaping issues with SSH + bash -c.
     log "  Launching Claude on $worker_ssh..."
-    ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 "$worker_ssh" "
-        export PATH=\"\$HOME/.local/bin:\$HOME/.bun/bin:/usr/local/bin:\$PATH\"
-        cd '${remote_path}' || exit 1
-        git fetch origin 2>/dev/null
-        git checkout -b '${branch}' 'origin/${base_branch}' 2>/dev/null || git checkout '${branch}' 2>/dev/null || git checkout -b '${branch}' 2>/dev/null
-        git submodule update --init 2>/dev/null
+    local remote_script="/tmp/fleet-task-${task_id}.sh"
+    local escaped_system_prompt
+    escaped_system_prompt=$(printf '%s' "$worker_prompt" | sed "s/'/'\\''/g")
 
-        PROMPT=\$(cat ~/.claude-fleet/tasks/${prompt_file_ref:-${task_id}.prompt} 2>/dev/null)
-        [[ -z \"\$PROMPT\" ]] && PROMPT='${task_prompt:0:500}'
+    cat > /tmp/_fleet_remote_script.sh << REMOTE_SCRIPT_EOF
+#!/bin/bash
+export PATH="\$HOME/.local/bin:\$HOME/.bun/bin:/usr/local/bin:\$PATH"
+cd '${remote_path}' || exit 1
+git fetch origin 2>/dev/null
+git checkout -b '${branch}' 'origin/${base_branch}' 2>/dev/null || git checkout '${branch}' 2>/dev/null || git checkout -b '${branch}' 2>/dev/null
+git submodule update --init 2>/dev/null
 
-        claude -p \\
-            --dangerously-skip-permissions \\
-            --max-turns ${max_turns} \\
-            --append-system-prompt '$(echo "$worker_prompt" | sed "s/'/'\\\\''/g")' \\
-            \"\$PROMPT\"
-    " 2>&1 | tee "$log_file" || exit_code=${PIPESTATUS[0]:-$?}
+PROMPT_FILE="\$HOME/.claude-fleet/tasks/${prompt_file_ref:-${task_id}.prompt}"
+if [[ ! -f "\$PROMPT_FILE" ]]; then
+    echo "[D-014] Prompt file not found on remote: \$PROMPT_FILE" >&2
+    exit 1
+fi
+
+PROMPT=\$(cat "\$PROMPT_FILE")
+if [[ -z "\$PROMPT" ]]; then
+    echo "[D-014] Prompt file empty on remote: \$PROMPT_FILE" >&2
+    exit 1
+fi
+
+claude -p \\
+    --dangerously-skip-permissions \\
+    --max-turns ${max_turns} \\
+    --append-system-prompt '${escaped_system_prompt}' \\
+    "\$PROMPT"
+REMOTE_SCRIPT_EOF
+
+    scp -q /tmp/_fleet_remote_script.sh "$worker_ssh:$remote_script" 2>/dev/null
+    ssh -o ServerAliveInterval=30 -o ServerAliveCountMax=10 "$worker_ssh" \
+        "bash '$remote_script'" 2>&1 | tee "$log_file" || exit_code=${PIPESTATUS[0]:-$?}
+    ssh "$worker_ssh" "rm -f '$remote_script'" 2>/dev/null
 
     # Fetch results back (the remote pushed the branch, we fetch it)
     log "  Fetching results from $worker_ssh..."
