@@ -29,7 +29,8 @@ from db import get_conn, run_migration, sync_from_json, get_all_tasks, \
     get_daily_completions, get_project_breakdown, get_queue_depth_history, \
     get_auto_heal_log, log_auto_heal, get_task_timeline, get_daily_costs, \
     get_queue_by_project, get_task_stats, get_analytics, \
-    get_cumulative_completions, get_recent_completions, get_daily_throughput
+    get_cumulative_completions, get_recent_completions, get_daily_throughput, \
+    get_loc_history, get_project_loc_from_tasks
 
 
 async def _periodic_sync():
@@ -1300,6 +1301,161 @@ async def get_stats_recent_completions(limit: int = Query(10)):
 async def get_stats_throughput(days: int = Query(7)):
     """Tasks completed per day (for sparkline bar chart)."""
     return get_daily_throughput(days)
+
+
+# ── LOC Endpoints ────────────────────────────────────────
+
+
+@app.get("/api/stats/loc-history")
+async def get_stats_loc_history():
+    """LOC aggregated by today/week/month, broken down by project."""
+    return get_loc_history()
+
+
+@app.get("/api/stats/projects-loc")
+async def get_stats_projects_loc():
+    """Per-project stats: total LOC, file counts, worker contribution."""
+    if not PROJECTS_FILE.exists():
+        return []
+    try:
+        data = json.loads(PROJECTS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return []
+
+    # Get worker LOC from DB
+    worker_loc = {}
+    for row in get_project_loc_from_tasks():
+        worker_loc[row["project_name"]] = row
+
+    CODE_EXTS = {
+        ".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".java",
+        ".c", ".cpp", ".h", ".hpp", ".cs", ".css", ".scss", ".html",
+        ".vue", ".sql", ".yaml", ".yml", ".toml", ".json", ".xml", ".sh",
+    }
+    DOC_EXTS = {".md", ".rst", ".txt"}
+    EXCLUDES = {"node_modules", ".git", "dist", "build", "__pycache__", ".next", ".venv", "venv"}
+
+    results = []
+    for proj in data.get("projects", []):
+        path = proj.get("path", "")
+        name = proj.get("name", "")
+        if not path or not name:
+            continue
+
+        p = Path(path)
+        loc = 0
+        file_count = 0
+        doc_count = 0
+
+        if p.exists():
+            try:
+                # Use git ls-files for tracked files only
+                result = subprocess.run(
+                    ["git", "ls-files"],
+                    capture_output=True, text=True, timeout=10, cwd=path,
+                )
+                if result.returncode == 0:
+                    for line in result.stdout.strip().split("\n"):
+                        if not line:
+                            continue
+                        fpath = Path(line)
+                        # Skip excluded dirs
+                        if any(ex in fpath.parts for ex in EXCLUDES):
+                            continue
+                        ext = fpath.suffix.lower()
+                        if ext in CODE_EXTS:
+                            file_count += 1
+                            full = p / fpath
+                            if full.exists():
+                                try:
+                                    loc += sum(1 for _ in open(full, "rb"))
+                                except (OSError, PermissionError):
+                                    pass
+                        elif ext in DOC_EXTS:
+                            doc_count += 1
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
+
+        wloc = worker_loc.get(name, {})
+        results.append({
+            "name": name,
+            "loc": loc,
+            "files": file_count,
+            "docs": doc_count,
+            "worker_added": wloc.get("worker_added", 0),
+            "worker_removed": wloc.get("worker_removed", 0),
+        })
+
+    results.sort(key=lambda x: x["loc"], reverse=True)
+    return results
+
+
+@app.post("/api/stats/backfill-loc")
+async def backfill_loc():
+    """Backfill LOC for old completed tasks by checking git diff on their branches."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT id, branch, base_branch, project_path
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND (lines_added IS NULL OR lines_added = 0)
+          AND (lines_removed IS NULL OR lines_removed = 0)
+          AND branch IS NOT NULL AND branch != ''
+          AND project_path IS NOT NULL AND project_path != ''
+    """).fetchall()
+
+    updated = 0
+    errors = 0
+    for row in rows:
+        task_id = row["id"]
+        branch = row["branch"]
+        base_branch = row["base_branch"] or "main"
+        project_path = row["project_path"]
+
+        if not Path(project_path).exists():
+            continue
+
+        try:
+            result = subprocess.run(
+                ["git", "diff", "--shortstat", f"{base_branch}...{branch}"],
+                capture_output=True, text=True, timeout=10, cwd=project_path,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                added, removed = _parse_shortstat(result.stdout)
+                if added > 0 or removed > 0:
+                    conn.execute(
+                        "UPDATE tasks SET lines_added = ?, lines_removed = ? WHERE id = ?",
+                        (added, removed, task_id),
+                    )
+                    # Also update the JSON file
+                    task_file = TASKS_DIR / f"{task_id}.json"
+                    if task_file.exists():
+                        try:
+                            td = json.loads(task_file.read_text())
+                            td["lines_added"] = added
+                            td["lines_removed"] = removed
+                            task_file.write_text(json.dumps(td, indent=2))
+                        except (json.JSONDecodeError, OSError):
+                            pass
+                    updated += 1
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            errors += 1
+
+    conn.commit()
+    return {"status": "ok", "updated": updated, "errors": errors, "checked": len(rows)}
+
+
+def _parse_shortstat(text: str) -> tuple[int, int]:
+    """Parse git diff --shortstat output into (insertions, deletions)."""
+    added = 0
+    removed = 0
+    m = re.search(r"(\d+)\s+insertion", text)
+    if m:
+        added = int(m.group(1))
+    m = re.search(r"(\d+)\s+deletion", text)
+    if m:
+        removed = int(m.group(1))
+    return added, removed
 
 
 # ── Git Status Endpoints ─────────────────────────────────

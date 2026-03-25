@@ -814,6 +814,57 @@ tr:hover td { background: var(--bg-hover); }
 /* ── Empty state ───────────────────────── */
 .empty { color: var(--text-dim); font-style: italic; padding: 12px 14px; font-size: 12px; }
 
+/* ── LOC Summary ──────────────────────── */
+.loc-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.loc-added { color: var(--completed); }
+.loc-removed { color: var(--failed); }
+.loc-net { font-weight: 600; color: var(--text); }
+.loc-none { color: var(--text-dim); font-style: italic; }
+
+/* ── Projects Table ───────────────────── */
+.projects-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.projects-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.projects-table td {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.projects-table tr:last-child td { border-bottom: none; }
+.projects-table tr:hover td { background: var(--bg-hover); }
+.loc-bar {
+  width: 100%;
+  height: 4px;
+  background: var(--bg-card);
+  border-radius: 2px;
+  overflow: hidden;
+  min-width: 80px;
+}
+.loc-bar-fill {
+  height: 100%;
+  background: var(--running);
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
 /* ── Mobile Responsive ────────────────── */
 @media (max-width: 768px) {
   body { font-size: 12px; }
@@ -956,6 +1007,20 @@ tr:hover td { background: var(--bg-hover); }
         <span class="history-card-total" id="hist-month">--</span>
       </div>
       <div class="history-breakdown" id="hist-month-breakdown"></div>
+    </div>
+  </div>
+
+  <!-- Projects LOC -->
+  <div class="section-box collapsed" id="projects-section">
+    <div class="section-box-header" onclick="toggleSection('projects-section')">
+      <div>
+        <span class="section-label">Projects</span>
+        <span class="badge-count" id="projects-count">0</span>
+      </div>
+      <span class="toggle" id="projects-toggle">[show]</span>
+    </div>
+    <div class="section-box-body" id="projects-body">
+      <div class="empty">Loading...</div>
     </div>
   </div>
 
@@ -1170,6 +1235,13 @@ async function api(path) {
   return r.json();
 }
 
+function formatLoc(n) {
+  if (n === 0) return '0';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'k';
+  return String(n);
+}
+
 async function apiPost(path, body) {
   const r = await fetch(path, {
     method: 'POST',
@@ -1303,6 +1375,75 @@ function renderHistoryCards(data) {
   renderBreakdown('hist-today-breakdown', data.today_by_project || {});
   renderBreakdown('hist-week-breakdown', data.week_by_project || {});
   renderBreakdown('hist-month-breakdown', data.month_by_project || {});
+}
+
+function renderLocSummary(locData) {
+  // Add LOC summary line to each history card
+  const periods = [
+    { key: 'today', elId: 'hist-today-breakdown' },
+    { key: 'week', elId: 'hist-week-breakdown' },
+    { key: 'month', elId: 'hist-month-breakdown' },
+  ];
+  for (const p of periods) {
+    const container = document.getElementById(p.elId);
+    if (!container) continue;
+    // Remove any existing loc-summary
+    const existing = container.querySelector('.loc-summary');
+    if (existing) existing.remove();
+
+    const d = locData[p.key] || {};
+    const div = document.createElement('div');
+    div.className = 'loc-summary';
+    if (!d.added && !d.removed) {
+      div.innerHTML = '<span class="loc-none">no LOC data</span>';
+    } else {
+      div.innerHTML =
+        '<span class="loc-added">+' + formatLoc(d.added || 0) + '</span>' +
+        '<span class="loc-removed">-' + formatLoc(d.removed || 0) + '</span>' +
+        '<span class="loc-net">net ' + (d.net >= 0 ? '+' : '') + formatLoc(d.net || 0) + '</span>';
+    }
+    container.appendChild(div);
+  }
+}
+
+function renderProjectsLoc(projects) {
+  const section = document.getElementById('projects-section');
+  const body = document.getElementById('projects-body');
+  const countEl = document.getElementById('projects-count');
+
+  countEl.textContent = projects.length;
+  if (projects.length === 0) {
+    body.innerHTML = '<div class="empty">No projects found</div>';
+    return;
+  }
+
+  const maxLoc = Math.max(...projects.map(p => p.loc || 0), 1);
+
+  let html = '<table class="projects-table"><thead><tr>' +
+    '<th>Project</th><th>LOC</th><th>Distribution</th>' +
+    '<th>Files</th><th>Docs</th><th>Worker +/-</th>' +
+    '</tr></thead><tbody>';
+
+  for (const p of projects) {
+    const pct = Math.round(((p.loc || 0) / maxLoc) * 100);
+    html += '<tr>';
+    html += '<td><span class="task-slug">' + esc(p.name) + '</span></td>';
+    html += '<td style="font-family:monospace">' + formatLoc(p.loc || 0) + '</td>';
+    html += '<td><div class="loc-bar"><div class="loc-bar-fill" style="width:' + pct + '%"></div></div></td>';
+    html += '<td style="color:var(--text-dim)">' + (p.files || 0) + '</td>';
+    html += '<td style="color:var(--text-dim)">' + (p.docs || 0) + '</td>';
+    html += '<td style="font-family:monospace">';
+    if (p.worker_added || p.worker_removed) {
+      html += '<span class="loc-added">+' + formatLoc(p.worker_added || 0) + '</span>';
+      html += ' / <span class="loc-removed">-' + formatLoc(p.worker_removed || 0) + '</span>';
+    } else {
+      html += '<span style="color:var(--text-dim)">--</span>';
+    }
+    html += '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  body.innerHTML = html;
 }
 
 function renderBreakdown(elId, byProject) {
@@ -2075,14 +2216,25 @@ async function refreshCharts() {
 
 async function refreshStats() {
   try {
-    const [analytics, history] = await Promise.all([
+    const [analytics, history, locHistory] = await Promise.all([
       api('/api/stats/analytics'),
       api('/api/stats/task-history'),
+      api('/api/stats/loc-history'),
     ]);
     renderStatCards(analytics, history);
     renderHistoryCards(history);
+    renderLocSummary(locHistory);
   } catch (e) {
     console.error('Stats failed:', e);
+  }
+}
+
+async function refreshProjectsLoc() {
+  try {
+    const projects = await api('/api/stats/projects-loc');
+    renderProjectsLoc(projects);
+  } catch (e) {
+    console.error('Projects LOC failed:', e);
   }
 }
 
@@ -2130,9 +2282,11 @@ async function refresh() {
 refresh();
 refreshStats();
 refreshCharts();
+refreshProjectsLoc();
 setInterval(refresh, REFRESH);
 setInterval(refreshStats, 30000);
 setInterval(refreshCharts, 60000);
+setInterval(refreshProjectsLoc, 120000);
 setInterval(updateTimestamp, 1000);
 </script>
 </body>
