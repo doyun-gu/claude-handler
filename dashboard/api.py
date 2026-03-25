@@ -29,7 +29,8 @@ from db import get_conn, run_migration, sync_from_json, get_all_tasks, \
     get_daily_completions, get_project_breakdown, get_queue_depth_history, \
     get_auto_heal_log, log_auto_heal, get_task_timeline, get_daily_costs, \
     get_queue_by_project, get_task_stats, get_analytics, \
-    get_cumulative_completions, get_recent_completions, get_daily_throughput
+    get_cumulative_completions, get_recent_completions, get_daily_throughput, \
+    get_loc_history, get_project_loc_from_tasks
 
 
 async def _periodic_sync():
@@ -1359,6 +1360,119 @@ async def get_stats_recent_completions(limit: int = Query(10)):
 async def get_stats_throughput(days: int = Query(7)):
     """Tasks completed per day (for sparkline bar chart)."""
     return get_daily_throughput(days)
+
+
+# ── LOC Stats Endpoints ─────────────────────────────────
+
+# Cache for project LOC counts (expensive to compute)
+_loc_cache: dict[str, Any] = {"data": None, "timestamp": 0}
+_LOC_CACHE_TTL = 60  # seconds
+
+
+CODE_EXTENSIONS = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".rs", ".go", ".java",
+    ".c", ".cpp", ".h", ".hpp", ".cs", ".css", ".scss", ".html",
+    ".vue", ".sql", ".yaml", ".yml", ".toml", ".json", ".xml", ".sh",
+}
+DOC_EXTENSIONS = {".md", ".rst", ".txt"}
+EXCLUDE_DIRS = {"node_modules", ".git", "dist", "build", "__pycache__", ".next", ".venv"}
+
+
+def _count_project_loc(project_path: str) -> dict:
+    """Count LOC, files, and doc files using git ls-files (fast, respects .gitignore)."""
+    p = Path(project_path)
+    if not p.exists():
+        return {"code_lines": 0, "code_files": 0, "doc_files": 0}
+
+    # Use git ls-files for accurate tracked file list
+    try:
+        result = subprocess.run(
+            ["git", "ls-files"],
+            capture_output=True, text=True, timeout=10, cwd=project_path,
+        )
+        if result.returncode != 0:
+            return {"code_lines": 0, "code_files": 0, "doc_files": 0}
+        tracked_files = result.stdout.strip().split("\n") if result.stdout.strip() else []
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return {"code_lines": 0, "code_files": 0, "doc_files": 0}
+
+    code_lines = 0
+    code_files = 0
+    doc_files = 0
+
+    for rel_path in tracked_files:
+        # Skip excluded directories
+        parts = rel_path.split("/")
+        if any(part in EXCLUDE_DIRS for part in parts):
+            continue
+
+        ext = Path(rel_path).suffix.lower()
+        full_path = p / rel_path
+
+        if ext in CODE_EXTENSIONS:
+            code_files += 1
+            try:
+                code_lines += sum(1 for _ in open(full_path, "rb"))
+            except (OSError, PermissionError):
+                pass
+        elif ext in DOC_EXTENSIONS:
+            doc_files += 1
+
+    return {"code_lines": code_lines, "code_files": code_files, "doc_files": doc_files}
+
+
+@app.get("/api/stats/loc-history")
+async def get_stats_loc_history():
+    """LOC history: today/week/month aggregated from worker tasks."""
+    return get_loc_history()
+
+
+@app.get("/api/stats/projects-loc")
+async def get_stats_projects_loc():
+    """Per-project LOC stats: total LOC, file counts, worker contribution."""
+    global _loc_cache
+
+    now = time.time()
+    if _loc_cache["data"] is not None and (now - _loc_cache["timestamp"]) < _LOC_CACHE_TTL:
+        return _loc_cache["data"]
+
+    # Get worker LOC contribution from tasks DB
+    worker_loc = get_project_loc_from_tasks()
+    worker_by_project = {r["project_name"]: r for r in worker_loc}
+
+    # Get project paths from registry
+    projects = []
+    if PROJECTS_FILE.exists():
+        try:
+            data = json.loads(PROJECTS_FILE.read_text())
+            for proj in data.get("projects", []):
+                name = proj.get("name", "")
+                path = proj.get("path", "")
+                if not name or not path:
+                    continue
+
+                loc_data = _count_project_loc(path)
+                worker_data = worker_by_project.get(name, {})
+
+                projects.append({
+                    "name": name,
+                    "code_lines": loc_data["code_lines"],
+                    "code_files": loc_data["code_files"],
+                    "doc_files": loc_data["doc_files"],
+                    "worker_added": worker_data.get("total_added", 0),
+                    "worker_removed": worker_data.get("total_removed", 0),
+                    "worker_net": worker_data.get("total_added", 0) - worker_data.get("total_removed", 0),
+                    "worker_tasks": worker_data.get("task_count", 0),
+                })
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Sort by code_lines descending
+    projects.sort(key=lambda p: p["code_lines"], reverse=True)
+
+    _loc_cache["data"] = projects
+    _loc_cache["timestamp"] = now
+    return projects
 
 
 # ── Git Status Endpoints ─────────────────────────────────

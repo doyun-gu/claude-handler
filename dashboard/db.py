@@ -60,6 +60,8 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             pr_url TEXT,
             merged_into TEXT,
             error_message TEXT,
+            loc_added INTEGER DEFAULT 0,
+            loc_removed INTEGER DEFAULT 0,
             raw_json TEXT
         );
 
@@ -126,6 +128,18 @@ def _init_schema(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_heal_timestamp ON auto_heal_log(timestamp);
     """)
     conn.commit()
+    _migrate_schema(conn)
+
+
+def _migrate_schema(conn: sqlite3.Connection) -> None:
+    """Add columns that may not exist in older databases."""
+    cursor = conn.execute("PRAGMA table_info(tasks)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "loc_added" not in columns:
+        conn.execute("ALTER TABLE tasks ADD COLUMN loc_added INTEGER DEFAULT 0")
+    if "loc_removed" not in columns:
+        conn.execute("ALTER TABLE tasks ADD COLUMN loc_removed INTEGER DEFAULT 0")
+    conn.commit()
 
 
 # ── Migration: JSON → SQLite ──────────────────────────────
@@ -149,8 +163,8 @@ def migrate_tasks() -> int:
                     subdir, dispatched_at, started_at, finished_at, merged_at,
                     status, base_branch, prompt, prompt_file, budget_usd,
                     permission_mode, tmux_session, pr_url, merged_into,
-                    error_message, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    error_message, loc_added, loc_removed, raw_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     status=excluded.status,
                     started_at=excluded.started_at,
@@ -158,6 +172,8 @@ def migrate_tasks() -> int:
                     merged_at=excluded.merged_at,
                     pr_url=excluded.pr_url,
                     error_message=excluded.error_message,
+                    loc_added=excluded.loc_added,
+                    loc_removed=excluded.loc_removed,
                     raw_json=excluded.raw_json
             """, (
                 task_id,
@@ -180,6 +196,8 @@ def migrate_tasks() -> int:
                 data.get("pr_url", ""),
                 data.get("merged_into", ""),
                 data.get("error_message", ""),
+                data.get("loc_added", 0) or 0,
+                data.get("loc_removed", 0) or 0,
                 json.dumps(data),
             ))
             count += 1
@@ -387,7 +405,7 @@ def update_task(task_id: str, updates: dict) -> bool:
     # Build SET clause for known columns
     known_cols = {
         "status", "started_at", "finished_at", "merged_at",
-        "pr_url", "error_message", "branch",
+        "pr_url", "error_message", "branch", "loc_added", "loc_removed",
     }
     sets = []
     params = []
@@ -891,6 +909,70 @@ def get_auto_heal_log(limit: int = 50) -> list[dict]:
         (limit,)
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+# ── LOC queries ───────────────────────────────────────────
+
+
+def get_loc_history() -> dict:
+    """LOC aggregated by today/week/month, broken down by project."""
+    conn = get_conn()
+
+    def _query_loc(where_clause: str) -> tuple[int, int, dict]:
+        rows = conn.execute(f"""
+            SELECT project_name,
+                   COALESCE(SUM(loc_added), 0) as added,
+                   COALESCE(SUM(loc_removed), 0) as removed
+            FROM tasks
+            WHERE status IN ('completed', 'merged')
+              AND finished_at IS NOT NULL AND finished_at != ''
+              AND {where_clause}
+            GROUP BY project_name
+        """).fetchall()
+        total_added = sum(r["added"] for r in rows)
+        total_removed = sum(r["removed"] for r in rows)
+        by_project = {
+            r["project_name"]: {
+                "added": r["added"],
+                "removed": r["removed"],
+                "net": r["added"] - r["removed"],
+            }
+            for r in rows if r["project_name"]
+        }
+        return total_added, total_removed, by_project
+
+    today_added, today_removed, today_by_project = _query_loc(
+        "DATE(finished_at) = DATE('now')"
+    )
+    week_added, week_removed, week_by_project = _query_loc(
+        "DATE(finished_at) >= DATE('now', 'weekday 1', '-7 days')"
+    )
+    month_added, month_removed, month_by_project = _query_loc(
+        "DATE(finished_at) >= DATE('now', 'start of month')"
+    )
+
+    return {
+        "today": {"added": today_added, "removed": today_removed, "net": today_added - today_removed, "by_project": today_by_project},
+        "week": {"added": week_added, "removed": week_removed, "net": week_added - week_removed, "by_project": week_by_project},
+        "month": {"added": month_added, "removed": month_removed, "net": month_added - month_removed, "by_project": month_by_project},
+    }
+
+
+def get_project_loc_from_tasks() -> list[dict]:
+    """Per-project worker-contributed LOC from task data."""
+    conn = get_conn()
+    rows = conn.execute("""
+        SELECT project_name,
+               COALESCE(SUM(loc_added), 0) as total_added,
+               COALESCE(SUM(loc_removed), 0) as total_removed,
+               COUNT(*) as task_count
+        FROM tasks
+        WHERE status IN ('completed', 'merged')
+          AND project_name IS NOT NULL AND project_name != ''
+        GROUP BY project_name
+        ORDER BY total_added DESC
+    """).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ── Sync: watch JSON files for external changes ──────────
