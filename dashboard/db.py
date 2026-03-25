@@ -987,13 +987,98 @@ def get_project_loc_from_tasks() -> list[dict]:
 # ── Sync: watch JSON files for external changes ──────────
 
 
-def sync_from_json() -> dict[str, int]:
-    """Re-import from JSON files to catch external changes (daemon writes).
+def sync_from_tasks_db() -> int:
+    """Sync task status from tasks.db (daemon's source of truth) into fleet.db.
 
-    Called periodically to keep SQLite in sync with file-based writes
-    from the worker daemon and other scripts.
+    The daemon writes to tasks.db via task-db.py. JSON file updates can
+    silently fail (queue-manager.py errors). This function ensures fleet.db
+    always reflects the daemon's actual state by reading tasks.db directly.
     """
-    return {
-        "tasks": migrate_tasks(),
+    tasks_db_path = FLEET_DIR / "tasks.db"
+    if not tasks_db_path.exists():
+        return 0
+
+    try:
+        src = sqlite3.connect(str(tasks_db_path))
+        src.row_factory = sqlite3.Row
+    except sqlite3.Error:
+        return 0
+
+    conn = get_conn()
+    count = 0
+
+    try:
+        rows = src.execute("""
+            SELECT id, status, started_at, finished_at, pr_url,
+                   error_message, route
+            FROM tasks
+            WHERE status != 'queued'
+        """).fetchall()
+
+        for row in rows:
+            # Only update if fleet.db has a different (stale) status
+            existing = conn.execute(
+                "SELECT status FROM tasks WHERE id = ?", (row["id"],)
+            ).fetchone()
+            if existing and existing["status"] != row["status"]:
+                conn.execute("""
+                    UPDATE tasks SET
+                        status = ?,
+                        started_at = COALESCE(?, tasks.started_at),
+                        finished_at = COALESCE(?, tasks.finished_at),
+                        pr_url = CASE WHEN ? != '' THEN ? ELSE tasks.pr_url END,
+                        error_message = CASE WHEN ? != '' THEN ? ELSE tasks.error_message END,
+                        route = CASE WHEN ? != '' THEN ? ELSE tasks.route END
+                    WHERE id = ?
+                """, (
+                    row["status"],
+                    row["started_at"], row["finished_at"],
+                    row["pr_url"] or "", row["pr_url"] or "",
+                    row["error_message"] or "", row["error_message"] or "",
+                    row["route"] or "", row["route"] or "",
+                    row["id"],
+                ))
+                # Also update raw_json to keep it consistent
+                raw_row = conn.execute(
+                    "SELECT raw_json FROM tasks WHERE id = ?", (row["id"],)
+                ).fetchone()
+                if raw_row and raw_row["raw_json"]:
+                    try:
+                        data = json.loads(raw_row["raw_json"])
+                        data["status"] = row["status"]
+                        if row["finished_at"]:
+                            data["finished_at"] = row["finished_at"]
+                        if row["pr_url"]:
+                            data["pr_url"] = row["pr_url"]
+                        if row["route"]:
+                            data["route"] = row["route"]
+                        conn.execute(
+                            "UPDATE tasks SET raw_json = ? WHERE id = ?",
+                            (json.dumps(data), row["id"]),
+                        )
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                count += 1
+
+        conn.commit()
+    except sqlite3.Error:
+        pass
+    finally:
+        src.close()
+
+    return count
+
+
+def sync_from_json() -> dict[str, int]:
+    """Re-import from JSON files and sync from tasks.db.
+
+    Called periodically to keep fleet.db in sync with:
+    1. JSON file changes (legacy format)
+    2. tasks.db changes (daemon's source of truth — takes priority)
+    """
+    results = {
+        "tasks_json": migrate_tasks(),
+        "tasks_db_sync": sync_from_tasks_db(),
         "backlog": migrate_backlog(),
     }
+    return results
