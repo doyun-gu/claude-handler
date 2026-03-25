@@ -549,7 +549,11 @@ run_task() {
     prompt_file_ref=$(task_field "$task_file" prompt_file "")
     if [[ -n "$prompt_file_ref" ]]; then
         # New format: prompt in separate file (referenced by manifest)
-        prompt_file_path="$TASKS_DIR/$prompt_file_ref"
+        if [[ "$prompt_file_ref" == /* ]]; then
+            prompt_file_path="$prompt_file_ref"
+        else
+            prompt_file_path="$TASKS_DIR/$prompt_file_ref"
+        fi
         if [[ -f "$prompt_file_path" ]]; then
             task_prompt=$(cat "$prompt_file_path")
         else
@@ -698,26 +702,18 @@ WORKER RULES:
     ) &
     heartbeat_pid=$!
 
-    # ─── Run Claude in process group for clean cleanup ────────
-    # setsid creates a new process group. On timeout/kill, we can
-    # kill the entire group (Claude + children) with kill -PGID.
-    if command -v script &>/dev/null && [[ "$(uname)" == "Darwin" ]]; then
-        setsid script -q "$log_file" \
-            "$CLAUDE_BIN" -p \
-            --dangerously-skip-permissions \
-            --max-turns "$max_turns" \
-            --append-system-prompt "$worker_prompt" \
-            "$task_prompt" \
-            2>&1 || exit_code=$?
-    elif command -v stdbuf &>/dev/null; then
-        setsid stdbuf -oL "$CLAUDE_BIN" -p \
+    # ─── Run Claude with readable log capture ────────────────
+    # Note: setsid is Linux-only (not available on macOS).
+    # Note: script -q produces binary typescript on macOS — use tee instead.
+    if command -v stdbuf &>/dev/null; then
+        stdbuf -oL "$CLAUDE_BIN" -p \
             --dangerously-skip-permissions \
             --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
             "$task_prompt" \
             2>&1 | tee "$log_file" || exit_code=${PIPESTATUS[0]:-$?}
     else
-        setsid "$CLAUDE_BIN" -p \
+        "$CLAUDE_BIN" -p \
             --dangerously-skip-permissions \
             --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
@@ -891,6 +887,7 @@ echo ""
 
 # Loop variables (declared outside loop — `local` only works in functions)
 status="" project="" queued="" running="" now="" idle_secs=""
+claimed_json="" claimed_id="" claimed_project="" task_file=""
 
 DAILY_BUDGET="${DAILY_BUDGET:-50}"  # $50/day default, override with env var
 
@@ -916,28 +913,36 @@ while true; do
     # ─── Sync new JSON tasks into SQLite ─────────────────────
     sync_json_to_db
 
+    # ─── Stuck task auto-recovery (every ~5 min) ─────────────
+    if (( CYCLE_COUNT % 30 == 0 )) && [[ -f "$TASK_DB" ]]; then
+        recovered=$(python3 "$TASK_DB" recover-stuck --minutes 10 2>/dev/null) || recovered=""
+        if [[ -n "$recovered" && "$recovered" != "Recovered 0 stuck tasks." ]]; then
+            warn "Auto-recovery: $recovered"
+        fi
+    fi
+
     # ─── Claim tasks from SQLite (atomic, priority-ordered) ──
     # SQLite claim handles: priority ordering, one-per-project,
     # dependency chains, parallel limits — all atomically.
     if [[ -f "$TASK_DB" ]]; then
         while (( (running + launched) < MAX_PARALLEL )); do
-            local claimed_json
+            claimed_json=""
             claimed_json=$(python3 "$TASK_DB" claim 2>/dev/null) || break
 
-            # Extract task file path from claimed task
-            local claimed_id claimed_project
+            claimed_id=""
+            claimed_project=""
             claimed_id=$(echo "$claimed_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null) || break
             claimed_project=$(echo "$claimed_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['project_name'])" 2>/dev/null) || break
 
             # Skip if project is frozen
             if is_project_frozen "$claimed_project" 2>/dev/null; then
                 log_error "D-041" "Project $claimed_project is frozen — task $claimed_id skipped"
-                python3 "$TASK_DB" status "$claimed_id" "queued" 2>/dev/null  # unclaim
+                python3 "$TASK_DB" status "$claimed_id" "queued" 2>/dev/null
                 break
             fi
 
             # Find the JSON file for run_task_async
-            local task_file="$TASKS_DIR/${claimed_id}.json"
+            task_file="$TASKS_DIR/${claimed_id}.json"
             if [[ ! -f "$task_file" ]]; then
                 log_error "D-060" "Claimed task $claimed_id but JSON file not found — writing from DB"
                 # Write JSON from DB data so run_task can read it

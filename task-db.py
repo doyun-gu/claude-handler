@@ -126,17 +126,32 @@ def import_json():
             d = json.load(open(f))
             task_id = d.get("id", f.stem)
 
-            # Check if already exists
-            existing = db.execute("SELECT id FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            # Check if already exists — sync status if JSON has terminal state
+            existing = db.execute("SELECT id, status FROM tasks WHERE id = ?", (task_id,)).fetchone()
             if existing:
-                skipped += 1
+                json_status = d.get("status", "queued")
+                db_status = existing["status"]
+                terminal = {"failed", "completed", "dismissed", "merged", "cancelled"}
+                non_terminal = {"queued", "running", "dispatched"}
+                # Update DB if: JSON is terminal and DB isn't, OR statuses differ
+                # and JSON is the more authoritative terminal state
+                if (json_status in terminal and db_status in non_terminal) or \
+                   (json_status != db_status and json_status in terminal):
+                    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+                    db.execute(
+                        "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
+                        (json_status, now, task_id)
+                    )
+                    imported += 1  # count as update
+                else:
+                    skipped += 1
                 continue
 
             # Read prompt from .prompt file if referenced
             prompt = d.get("prompt", "")
             prompt_file = d.get("prompt_file", "")
             if not prompt and prompt_file:
-                prompt_path = TASKS_DIR / prompt_file
+                prompt_path = Path(prompt_file) if prompt_file.startswith("/") else TASKS_DIR / prompt_file
                 if prompt_path.exists():
                     prompt = prompt_path.read_text()
 
@@ -318,6 +333,19 @@ def record_heartbeat(task_id, log_size=0, pid_alive=True):
     db.close()
 
 
+def _is_project_process_alive(project_name):
+    """Check if a project's PID file points to a live process."""
+    pidfile = Path("/tmp/fleet-running") / f"{project_name}.pid"
+    if not pidfile.exists():
+        return False
+    try:
+        pid = int(pidfile.read_text().strip())
+        os.kill(pid, 0)
+        return True
+    except (ProcessLookupError, ValueError, PermissionError, OSError):
+        return False
+
+
 def find_stuck(minutes=10):
     """
     Find tasks that appear stuck.
@@ -325,6 +353,10 @@ def find_stuck(minutes=10):
     1. Status is 'running'
     2. No heartbeat in the last N minutes, OR
     3. Log size hasn't changed between last two heartbeats
+    4. AND the project's PID file process is dead (safety check)
+
+    If the PID is alive, we trust the process is working even if
+    log capture is broken (e.g., macOS script -q binary output).
     """
     db = get_db(readonly=True)
     cutoff = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).strftime(
@@ -339,6 +371,11 @@ def find_stuck(minutes=10):
 
     for task in running:
         reason = None
+
+        # Safety: if the project's process is alive, skip stuck detection.
+        # Log-based detection can false-positive when log capture is broken.
+        if _is_project_process_alive(task["project_name"]):
+            continue
 
         # Check heartbeat freshness
         if not task["last_heartbeat"] or task["last_heartbeat"] < cutoff:
@@ -380,6 +417,24 @@ def find_stuck(minutes=10):
 
     db.close()
     return stuck
+
+
+def recover_stuck(minutes=10):
+    """Find stuck tasks and mark them as failed. Returns count recovered."""
+    stuck = find_stuck(minutes)
+    if not stuck:
+        return 0
+    db = get_db()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for s in stuck:
+        db.execute("""
+            UPDATE tasks SET status = 'failed', finished_at = ?, updated_at = ?,
+            error_message = ? WHERE id = ? AND status = 'running'
+        """, (now, now, f"Auto-recovered: {s['reason']}", s["id"]))
+    db.commit()
+    count = len(stuck)
+    db.close()
+    return count
 
 
 def get_cost_today():
@@ -551,7 +606,8 @@ def claim_next_for_daemon(blocked_projects=None, max_parallel=3):
 
         # Ensure prompt is available (read from .prompt file if needed)
         if not result.get("prompt") and result.get("prompt_file"):
-            prompt_path = TASKS_DIR / result["prompt_file"]
+            pf = result["prompt_file"]
+            prompt_path = Path(pf) if pf.startswith("/") else TASKS_DIR / pf
             if prompt_path.exists():
                 result["prompt"] = prompt_path.read_text()
 
@@ -576,7 +632,7 @@ def add_from_json(json_path):
     prompt = d.get("prompt", "")
     prompt_file = d.get("prompt_file", "")
     if not prompt and prompt_file:
-        prompt_path = TASKS_DIR / prompt_file
+        prompt_path = Path(prompt_file) if prompt_file.startswith("/") else TASKS_DIR / prompt_file
         if prompt_path.exists():
             prompt = prompt_path.read_text()
 
@@ -685,6 +741,15 @@ if __name__ == "__main__":
                 print(f"  STUCK: {s['slug']} ({s['project']}) — {s['reason']}")
         else:
             print("No stuck tasks.")
+
+    elif cmd == "recover-stuck":
+        minutes = 10
+        for i, a in enumerate(args):
+            if a == "--minutes" and i + 1 < len(args):
+                minutes = int(args[i + 1])
+        init_db()
+        count = recover_stuck(minutes)
+        print(f"Recovered {count} stuck tasks.")
 
     elif cmd == "cost-today":
         cost = get_cost_today()
