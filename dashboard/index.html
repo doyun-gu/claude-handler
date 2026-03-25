@@ -844,6 +844,339 @@ tr:hover td { background: var(--bg-hover); }
   .history-cards { grid-template-columns: 1fr; }
   .topbar-left .svc-dots { display: none; }
   .idle-summary { font-size: 11px; }
+  .machine-cards { grid-template-columns: 1fr; }
+  .flow-diagram { flex-direction: column; }
+  .flow-lines { display: none; }
+}
+
+/* ── Machine Status Cards ─────────────── */
+.machine-cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.machine-card {
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  border: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+.machine-card.mac-mini {
+  background: #2d4a3e;
+  border-color: rgba(167, 192, 128, 0.3);
+}
+.machine-card.dell-xps {
+  background: #4a3d2d;
+  border-color: rgba(211, 198, 170, 0.3);
+}
+.machine-card.offline {
+  opacity: 0.55;
+}
+[data-theme="light"] .machine-card.mac-mini {
+  background: #e8f0e4;
+  border-color: rgba(100, 140, 80, 0.3);
+}
+[data-theme="light"] .machine-card.dell-xps {
+  background: #f0ebe0;
+  border-color: rgba(160, 140, 100, 0.3);
+}
+.machine-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.machine-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #D3C6AA;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+[data-theme="light"] .machine-card-name { color: #1a1a2e; }
+.machine-card-chip {
+  font-size: 11px;
+  color: #D3C6AA;
+  opacity: 0.7;
+}
+[data-theme="light"] .machine-card-chip { color: #4b5563; }
+.machine-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 6px;
+}
+.machine-status-dot.online {
+  background: #A7C080;
+  box-shadow: 0 0 6px rgba(167, 192, 128, 0.5);
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+.machine-status-dot.offline { background: #6b7280; }
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.machine-status-label {
+  font-size: 11px;
+  color: #D3C6AA;
+  opacity: 0.8;
+}
+[data-theme="light"] .machine-status-label { color: #374151; }
+.machine-card-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+.machine-stat {
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.machine-stat-label {
+  color: #D3C6AA;
+  opacity: 0.5;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+[data-theme="light"] .machine-stat-label { color: #6b7280; }
+.machine-stat-value {
+  color: #D3C6AA;
+  font-weight: 500;
+  margin-top: 1px;
+}
+[data-theme="light"] .machine-stat-value { color: #1a1a2e; }
+.machine-current-task {
+  margin-top: 10px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: rgba(167, 192, 128, 0.15);
+  border: 1px solid rgba(167, 192, 128, 0.25);
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  color: #A7C080;
+  animation: task-pulse 2s ease-in-out infinite;
+}
+@keyframes task-pulse {
+  0%, 100% { border-color: rgba(167, 192, 128, 0.25); }
+  50% { border-color: rgba(167, 192, 128, 0.6); }
+}
+
+/* ── Work Distribution Flow Diagram ──── */
+.flow-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+.flow-section-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+}
+.flow-diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  position: relative;
+  min-height: 120px;
+}
+.flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 20px;
+  border-radius: var(--radius);
+  min-width: 160px;
+  text-align: center;
+  position: relative;
+  z-index: 2;
+}
+.flow-node-queue {
+  background: #3d3d4a;
+  border: 1px solid rgba(167, 192, 128, 0.3);
+}
+[data-theme="light"] .flow-node-queue {
+  background: #e5e7eb;
+  border-color: rgba(100, 120, 80, 0.3);
+}
+.flow-node-worker {
+  min-width: 140px;
+}
+.flow-node-worker.mac-mini {
+  background: #2d4a3e;
+  border: 1px solid rgba(167, 192, 128, 0.3);
+}
+.flow-node-worker.dell-xps {
+  background: #4a3d2d;
+  border: 1px solid rgba(211, 198, 170, 0.3);
+}
+.flow-node-worker.offline {
+  opacity: 0.5;
+}
+[data-theme="light"] .flow-node-worker.mac-mini {
+  background: #e8f0e4;
+  border-color: rgba(100, 140, 80, 0.3);
+}
+[data-theme="light"] .flow-node-worker.dell-xps {
+  background: #f0ebe0;
+  border-color: rgba(160, 140, 100, 0.3);
+}
+.flow-node-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #D3C6AA;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+[data-theme="light"] .flow-node-label { color: #6b7280; }
+.flow-node-count {
+  font-size: 24px;
+  font-weight: 700;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  color: #D3C6AA;
+}
+[data-theme="light"] .flow-node-count { color: #1a1a2e; }
+.flow-node-task {
+  font-size: 11px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  color: #A7C080;
+  margin-top: 4px;
+  max-width: 130px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flow-node-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #D3C6AA;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+[data-theme="light"] .flow-node-name { color: #1a1a2e; }
+
+/* Flow connection lines */
+.flow-connector {
+  position: relative;
+  width: 80px;
+  height: 2px;
+  background: rgba(167, 192, 128, 0.2);
+  z-index: 1;
+  flex-shrink: 0;
+}
+.flow-connector::before {
+  content: '';
+  position: absolute;
+  right: -3px;
+  top: -3px;
+  width: 8px;
+  height: 8px;
+  border-top: 2px solid rgba(167, 192, 128, 0.4);
+  border-right: 2px solid rgba(167, 192, 128, 0.4);
+  transform: rotate(45deg);
+}
+/* Animated particles flowing along connectors */
+.flow-connector.active::after {
+  content: '';
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #A7C080;
+  box-shadow: 0 0 8px rgba(167, 192, 128, 0.6);
+  top: -2px;
+  animation: flow-particle 2s ease-in-out infinite;
+}
+@keyframes flow-particle {
+  0% { left: -6px; opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { left: calc(100% + 6px); opacity: 0; }
+}
+/* Second particle with offset */
+.flow-connector.active-fast::after {
+  animation-duration: 1.5s;
+}
+/* Distribution bar under flow */
+.flow-dist-bars {
+  display: flex;
+  gap: 12px;
+  margin-top: 14px;
+  align-items: center;
+}
+.flow-dist-bar-group {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.flow-dist-label {
+  font-size: 10px;
+  color: #D3C6AA;
+  opacity: 0.6;
+  min-width: 60px;
+  text-align: right;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+[data-theme="light"] .flow-dist-label { color: #6b7280; }
+.flow-dist-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+  overflow: hidden;
+}
+[data-theme="light"] .flow-dist-track { background: rgba(0,0,0,0.06); }
+.flow-dist-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.flow-dist-fill.mac-mini { background: #A7C080; }
+.flow-dist-fill.dell-xps { background: #D3C6AA; }
+.flow-dist-count {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  color: #D3C6AA;
+  min-width: 24px;
+}
+[data-theme="light"] .flow-dist-count { color: #1a1a2e; }
+
+/* Worker badge in task table */
+.worker-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.worker-badge.mac-mini {
+  background: rgba(167, 192, 128, 0.15);
+  color: #A7C080;
+  border: 1px solid rgba(167, 192, 128, 0.3);
+}
+.worker-badge.dell-xps {
+  background: rgba(211, 198, 170, 0.15);
+  color: #D3C6AA;
+  border: 1px solid rgba(211, 198, 170, 0.3);
+}
+
+@media (max-width: 768px) {
+  .machine-cards { grid-template-columns: 1fr; }
+  .flow-diagram { flex-direction: column; gap: 8px; }
+  .flow-connector { width: 2px; height: 30px; }
+  .flow-connector::before { display: none; }
 }
 </style>
 </head>
@@ -908,6 +1241,107 @@ tr:hover td { background: var(--bg-hover); }
   <div class="events-bar" id="events-bar" style="display:none">
     <span id="events-chips"></span>
     <button class="btn" onclick="openEventModal()" style="font-size:11px; padding:2px 8px">+ Event</button>
+  </div>
+
+  <!-- Machine Status Cards -->
+  <div class="machine-cards" id="machine-cards">
+    <div class="machine-card mac-mini" id="mc-mac-mini">
+      <div class="machine-card-header">
+        <div>
+          <span class="machine-card-name">Mac Mini</span>
+          <span class="machine-card-chip">Apple M4</span>
+        </div>
+        <div>
+          <span class="machine-status-dot online" id="mc-dot-mac-mini"></span>
+          <span class="machine-status-label" id="mc-status-mac-mini">online</span>
+        </div>
+      </div>
+      <div class="machine-card-stats">
+        <div class="machine-stat">
+          <div class="machine-stat-label">Role</div>
+          <div class="machine-stat-value">Controller + Worker 1</div>
+        </div>
+        <div class="machine-stat">
+          <div class="machine-stat-label">Uptime</div>
+          <div class="machine-stat-value" id="mc-uptime-mac-mini">--</div>
+        </div>
+        <div class="machine-stat">
+          <div class="machine-stat-label">Done Today</div>
+          <div class="machine-stat-value" id="mc-done-mac-mini">0</div>
+        </div>
+        <div class="machine-stat">
+          <div class="machine-stat-label">CPU</div>
+          <div class="machine-stat-value" id="mc-cpu-mac-mini">--</div>
+        </div>
+      </div>
+      <div class="machine-current-task" id="mc-task-mac-mini" style="display:none"></div>
+    </div>
+    <div class="machine-card dell-xps" id="mc-dell-xps">
+      <div class="machine-card-header">
+        <div>
+          <span class="machine-card-name">Dell XPS</span>
+          <span class="machine-card-chip">i7-12700H</span>
+        </div>
+        <div>
+          <span class="machine-status-dot offline" id="mc-dot-dell-xps"></span>
+          <span class="machine-status-label" id="mc-status-dell-xps">checking...</span>
+        </div>
+      </div>
+      <div class="machine-card-stats">
+        <div class="machine-stat">
+          <div class="machine-stat-label">Role</div>
+          <div class="machine-stat-value">Worker 2 (WSL2)</div>
+        </div>
+        <div class="machine-stat">
+          <div class="machine-stat-label">Uptime</div>
+          <div class="machine-stat-value" id="mc-uptime-dell-xps">--</div>
+        </div>
+        <div class="machine-stat">
+          <div class="machine-stat-label">Done Today</div>
+          <div class="machine-stat-value" id="mc-done-dell-xps">0</div>
+        </div>
+        <div class="machine-stat">
+          <div class="machine-stat-label">Status</div>
+          <div class="machine-stat-value" id="mc-extra-dell-xps">--</div>
+        </div>
+      </div>
+      <div class="machine-current-task" id="mc-task-dell-xps" style="display:none"></div>
+    </div>
+  </div>
+
+  <!-- Work Distribution Flow -->
+  <div class="flow-section" id="flow-section">
+    <div class="flow-section-label">Work Distribution</div>
+    <div class="flow-diagram" id="flow-diagram">
+      <div class="flow-node flow-node-worker mac-mini">
+        <div class="flow-node-label">Worker 1</div>
+        <div class="flow-node-name">Mac Mini</div>
+        <div class="flow-node-task" id="flow-task-mac-mini">idle</div>
+      </div>
+      <div class="flow-connector" id="flow-conn-left"></div>
+      <div class="flow-node flow-node-queue">
+        <div class="flow-node-label">Queue</div>
+        <div class="flow-node-count" id="flow-queue-count">0</div>
+      </div>
+      <div class="flow-connector" id="flow-conn-right"></div>
+      <div class="flow-node flow-node-worker dell-xps" id="flow-node-dell">
+        <div class="flow-node-label">Worker 2</div>
+        <div class="flow-node-name">Dell XPS</div>
+        <div class="flow-node-task" id="flow-task-dell-xps">offline</div>
+      </div>
+    </div>
+    <div class="flow-dist-bars" id="flow-dist-bars">
+      <div class="flow-dist-bar-group">
+        <span class="flow-dist-label">Mac Mini</span>
+        <div class="flow-dist-track"><div class="flow-dist-fill mac-mini" id="flow-bar-mac-mini" style="width:0%"></div></div>
+        <span class="flow-dist-count" id="flow-count-mac-mini">0</span>
+      </div>
+      <div class="flow-dist-bar-group">
+        <span class="flow-dist-label">Dell XPS</span>
+        <div class="flow-dist-track"><div class="flow-dist-fill dell-xps" id="flow-bar-dell-xps" style="width:0%"></div></div>
+        <span class="flow-dist-count" id="flow-count-dell-xps">0</span>
+      </div>
+    </div>
   </div>
 
   <!-- Analytics Stat Cards -->
@@ -1416,11 +1850,13 @@ function renderCompleted(tasks) {
     return;
   }
 
-  let html = '<table><thead><tr><th>Task</th><th>Project</th><th>Status</th><th>Duration</th><th>Finished</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Task</th><th>Project</th><th>Worker</th><th>Status</th><th>Duration</th><th>Finished</th></tr></thead><tbody>';
   for (const t of recent) {
+    const worker = getWorkerForTask(t);
     html += '<tr>';
     html += '<td><span class="task-slug">' + esc(shortSlug(t.id || t.slug)) + '</span></td>';
     html += '<td>' + esc(t.project_name || '--') + '</td>';
+    html += '<td>' + workerBadge(worker) + '</td>';
     html += '<td>' + badge(t.status) + '</td>';
     html += '<td>' + duration(t.started_at, t.finished_at) + '</td>';
     html += '<td>' + timeAgo(t.finished_at || t.merged_at) + '</td>';
@@ -1878,6 +2314,135 @@ function hashCode(s) {
   return h;
 }
 
+function getWorkerForTask(t) {
+  // Check route field directly or in raw_json
+  if (t.route) return t.route;
+  if (t.raw_json) {
+    try {
+      const raw = typeof t.raw_json === 'string' ? JSON.parse(t.raw_json) : t.raw_json;
+      if (raw.route) return raw.route;
+    } catch (e) {}
+  }
+  return 'mac-mini';
+}
+
+function workerBadge(worker) {
+  const name = worker === 'dell-xps' ? 'Dell XPS' : 'Mac Mini';
+  return '<span class="worker-badge ' + esc(worker || 'mac-mini') + '">' + esc(name) + '</span>';
+}
+
+function renderMachines(machines) {
+  for (const m of machines) {
+    const id = m.id || '';
+    const card = document.getElementById('mc-' + id);
+    if (!card) continue;
+
+    // Status dot + label
+    const dot = document.getElementById('mc-dot-' + id);
+    const label = document.getElementById('mc-status-' + id);
+    if (dot) {
+      dot.className = 'machine-status-dot ' + (m.status === 'online' ? 'online' : 'offline');
+    }
+    if (label) label.textContent = m.status || 'unknown';
+
+    // Offline class
+    if (m.status !== 'online') {
+      card.classList.add('offline');
+    } else {
+      card.classList.remove('offline');
+    }
+
+    // Uptime
+    const upEl = document.getElementById('mc-uptime-' + id);
+    if (upEl) upEl.textContent = m.uptime || '--';
+
+    // Completed today
+    const doneEl = document.getElementById('mc-done-' + id);
+    if (doneEl) doneEl.textContent = m.completed_today || 0;
+
+    // CPU (Mac Mini only)
+    const cpuEl = document.getElementById('mc-cpu-' + id);
+    if (cpuEl && m.cpu_percent != null) {
+      cpuEl.textContent = m.cpu_percent + '%';
+    }
+
+    // Extra stat for Dell
+    const extraEl = document.getElementById('mc-extra-' + id);
+    if (extraEl) {
+      extraEl.textContent = m.status === 'online' ? 'ready' : 'offline';
+    }
+
+    // Current task
+    const taskEl = document.getElementById('mc-task-' + id);
+    if (taskEl) {
+      if (m.current_task) {
+        taskEl.style.display = '';
+        taskEl.textContent = '\u25B6 ' + shortSlug(m.current_task);
+      } else {
+        taskEl.style.display = 'none';
+      }
+    }
+  }
+}
+
+function renderDistribution(dist) {
+  // Queue count
+  const queueEl = document.getElementById('flow-queue-count');
+  if (queueEl) queueEl.textContent = dist.queued || 0;
+
+  const machines = dist.machines || {};
+
+  // Flow task labels
+  for (const key of ['mac-mini', 'dell-xps']) {
+    const taskEl = document.getElementById('flow-task-' + key);
+    if (!taskEl) continue;
+    const m = machines[key] || {};
+    if (m.running > 0) {
+      taskEl.textContent = 'running ' + m.running + ' task' + (m.running > 1 ? 's' : '');
+    } else {
+      taskEl.textContent = key === 'dell-xps' ? (document.getElementById('mc-dell-xps')?.classList.contains('offline') ? 'offline' : 'idle') : 'idle';
+    }
+  }
+
+  // Animated connectors
+  const leftConn = document.getElementById('flow-conn-left');
+  const rightConn = document.getElementById('flow-conn-right');
+  if (leftConn) {
+    const macRunning = (machines['mac-mini'] || {}).running || 0;
+    leftConn.className = 'flow-connector' + (macRunning > 0 ? ' active' : '') + (dist.queued > 2 ? ' active-fast' : '');
+  }
+  if (rightConn) {
+    const dellRunning = (machines['dell-xps'] || {}).running || 0;
+    rightConn.className = 'flow-connector' + (dellRunning > 0 ? ' active' : '');
+  }
+
+  // Dell node offline state
+  const dellNode = document.getElementById('flow-node-dell');
+  if (dellNode) {
+    const dellCard = document.getElementById('mc-dell-xps');
+    if (dellCard && dellCard.classList.contains('offline')) {
+      dellNode.classList.add('offline');
+    } else {
+      dellNode.classList.remove('offline');
+    }
+  }
+
+  // Distribution bars (today's completed tasks)
+  const macToday = (machines['mac-mini'] || {}).today || 0;
+  const dellToday = (machines['dell-xps'] || {}).today || 0;
+  const maxToday = Math.max(macToday, dellToday, 1);
+
+  const macBar = document.getElementById('flow-bar-mac-mini');
+  const dellBar = document.getElementById('flow-bar-dell-xps');
+  const macCount = document.getElementById('flow-count-mac-mini');
+  const dellCount = document.getElementById('flow-count-dell-xps');
+
+  if (macBar) macBar.style.width = Math.round((macToday / maxToday) * 100) + '%';
+  if (dellBar) dellBar.style.width = Math.round((dellToday / maxToday) * 100) + '%';
+  if (macCount) macCount.textContent = macToday;
+  if (dellCount) dellCount.textContent = dellToday;
+}
+
 function renderQueueChart(data) {
   const ctx = document.getElementById('chart-queue');
   if (!ctx) return;
@@ -2097,7 +2662,7 @@ function updateTimestamp() {
 
 async function refresh() {
   try {
-    const [sys, svcs, tasks, queue, review, backlog, events] = await Promise.all([
+    const [sys, svcs, tasks, queue, review, backlog, events, dist] = await Promise.all([
       api('/api/system'),
       api('/api/services'),
       api('/api/tasks'),
@@ -2105,6 +2670,7 @@ async function refresh() {
       api('/api/review'),
       api('/api/backlog'),
       api('/api/events'),
+      api('/api/distribution'),
     ]);
 
     lastFetch = Date.now();
@@ -2119,9 +2685,19 @@ async function refresh() {
     renderCompleted(tasks);
     renderReview(review);
     renderBacklog(backlog);
+    renderDistribution(dist);
   } catch (e) {
     document.getElementById('live-dot').className = 'live-dot dead';
     console.error('Refresh failed:', e);
+  }
+}
+
+async function refreshMachines() {
+  try {
+    const machines = await api('/api/machines');
+    renderMachines(machines);
+  } catch (e) {
+    console.error('Machines refresh failed:', e);
   }
 }
 
@@ -2130,9 +2706,11 @@ async function refresh() {
 refresh();
 refreshStats();
 refreshCharts();
+refreshMachines();
 setInterval(refresh, REFRESH);
 setInterval(refreshStats, 30000);
 setInterval(refreshCharts, 60000);
+setInterval(refreshMachines, 30000);
 setInterval(updateTimestamp, 1000);
 </script>
 </body>

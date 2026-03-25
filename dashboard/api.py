@@ -1426,6 +1426,170 @@ async def trigger_migration():
     return {"status": "ok", "migrated": results}
 
 
+# ── Multi-Worker Machine Endpoints ──────────────────────
+
+
+# Machine definitions — static config for the 2-worker fleet
+MACHINES = {
+    "mac-mini": {
+        "id": "mac-mini",
+        "name": "Mac Mini",
+        "hostname": "mac-mini",
+        "chip": "Apple M4",
+        "role": "Controller + Worker 1",
+        "os": "macOS",
+        "local": True,
+    },
+    "dell-xps": {
+        "id": "dell-xps",
+        "name": "Dell XPS",
+        "hostname": "dell-xps",
+        "chip": "i7-12700H",
+        "role": "Worker 2 (WSL2)",
+        "os": "Ubuntu/WSL2",
+        "local": False,
+    },
+}
+
+# Cache Dell XPS SSH check (expensive, only refresh every 30s)
+_dell_status_cache: dict[str, Any] = {"status": "unknown", "checked_at": 0}
+
+
+def _check_dell_status() -> dict:
+    """Check Dell XPS SSH reachability (cached every 30s)."""
+    global _dell_status_cache
+    now = time.time()
+    if now - _dell_status_cache["checked_at"] < 30:
+        return _dell_status_cache
+
+    try:
+        result = subprocess.run(
+            ["ssh", "-o", "ConnectTimeout=3", "-o", "BatchMode=yes",
+             "dell-xps", "echo ok"],
+            capture_output=True, text=True, timeout=5,
+        )
+        online = result.returncode == 0 and "ok" in result.stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        online = False
+
+    _dell_status_cache = {
+        "status": "online" if online else "offline",
+        "checked_at": now,
+    }
+    return _dell_status_cache
+
+
+def _get_worker_for_task(task: dict) -> str:
+    """Determine which machine a task ran/runs on from route or raw_json."""
+    route = task.get("route", "")
+    if route:
+        return route
+    # Check raw_json for route field
+    raw = task.get("raw_json", "")
+    if raw:
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+            route = data.get("route", "")
+            if route:
+                return route
+        except (json.JSONDecodeError, TypeError):
+            pass
+    # Default: tasks without a route run on mac-mini
+    return "mac-mini"
+
+
+@app.get("/api/machines")
+async def get_machines():
+    """Status of all worker machines."""
+    machines = []
+
+    # Mac Mini — always online (local, runs the dashboard)
+    identity = get_machine_identity()
+    mac_mini = {**MACHINES["mac-mini"]}
+    mac_mini["status"] = "online"
+    mac_mini["uptime"] = get_uptime()
+    mac_mini["cpu_percent"] = psutil.cpu_percent(interval=0.3)
+    mem = psutil.virtual_memory()
+    mac_mini["ram_used_gb"] = round(mem.used / (1024**3), 1)
+    mac_mini["ram_total_gb"] = round(mem.total / (1024**3), 1)
+
+    # Current task on Mac Mini
+    mac_mini["current_task"] = None
+    mac_mini["completed_today"] = 0
+    tasks = get_all_tasks()
+    today = datetime.now().strftime("%Y-%m-%d")
+    for t in tasks:
+        t_dict = dict(t) if not isinstance(t, dict) else t
+        worker = _get_worker_for_task(t_dict)
+        if worker == "mac-mini" or worker == "":
+            if t_dict.get("status") == "running":
+                mac_mini["current_task"] = t_dict.get("slug") or t_dict.get("id", "")
+            finished = t_dict.get("finished_at", "") or ""
+            if t_dict.get("status") in ("completed", "merged") and finished.startswith(today):
+                mac_mini["completed_today"] += 1
+    machines.append(mac_mini)
+
+    # Dell XPS — check via SSH
+    dell = {**MACHINES["dell-xps"]}
+    dell_check = _check_dell_status()
+    dell["status"] = dell_check["status"]
+    dell["uptime"] = "--"
+    dell["cpu_percent"] = None
+    dell["ram_used_gb"] = None
+    dell["ram_total_gb"] = None
+    dell["current_task"] = None
+    dell["completed_today"] = 0
+    for t in tasks:
+        t_dict = dict(t) if not isinstance(t, dict) else t
+        worker = _get_worker_for_task(t_dict)
+        if worker == "dell-xps":
+            if t_dict.get("status") == "running":
+                dell["current_task"] = t_dict.get("slug") or t_dict.get("id", "")
+            finished = t_dict.get("finished_at", "") or ""
+            if t_dict.get("status") in ("completed", "merged") and finished.startswith(today):
+                dell["completed_today"] += 1
+    machines.append(dell)
+
+    return machines
+
+
+@app.get("/api/distribution")
+async def get_distribution():
+    """Task counts per worker for today, plus historical by machine."""
+    tasks = get_all_tasks()
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    result = {
+        "mac-mini": {"today": 0, "running": 0, "total": 0},
+        "dell-xps": {"today": 0, "running": 0, "total": 0},
+    }
+    queued_count = 0
+
+    for t in tasks:
+        t_dict = dict(t) if not isinstance(t, dict) else t
+        worker = _get_worker_for_task(t_dict)
+        status = t_dict.get("status", "")
+
+        if status == "queued":
+            queued_count += 1
+            continue
+
+        # Normalize worker key
+        key = worker if worker in result else "mac-mini"
+        if status == "running":
+            result[key]["running"] += 1
+        if status in ("completed", "merged", "failed"):
+            result[key]["total"] += 1
+            finished = t_dict.get("finished_at", "") or ""
+            if finished.startswith(today):
+                result[key]["today"] += 1
+
+    return {
+        "machines": result,
+        "queued": queued_count,
+    }
+
+
 # ── Static file serving ─────────────────────────────────
 
 

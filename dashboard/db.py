@@ -33,6 +33,7 @@ def get_conn() -> sqlite3.Connection:
         _conn.execute("PRAGMA journal_mode=WAL")
         _conn.execute("PRAGMA foreign_keys=ON")
         _init_schema(_conn)
+        _migrate_columns(_conn)
     return _conn
 
 
@@ -60,7 +61,8 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             pr_url TEXT,
             merged_into TEXT,
             error_message TEXT,
-            raw_json TEXT
+            raw_json TEXT,
+            route TEXT DEFAULT ''
         );
 
         CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
@@ -128,6 +130,16 @@ def _init_schema(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _migrate_columns(conn: sqlite3.Connection) -> None:
+    """Add columns that may be missing from older databases."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+    if "route" not in existing:
+        conn.execute("ALTER TABLE tasks ADD COLUMN route TEXT DEFAULT ''")
+        conn.commit()
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tasks_route ON tasks(route)")
+    conn.commit()
+
+
 # ── Migration: JSON → SQLite ──────────────────────────────
 
 
@@ -149,8 +161,8 @@ def migrate_tasks() -> int:
                     subdir, dispatched_at, started_at, finished_at, merged_at,
                     status, base_branch, prompt, prompt_file, budget_usd,
                     permission_mode, tmux_session, pr_url, merged_into,
-                    error_message, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    error_message, raw_json, route)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     status=excluded.status,
                     started_at=excluded.started_at,
@@ -158,7 +170,8 @@ def migrate_tasks() -> int:
                     merged_at=excluded.merged_at,
                     pr_url=excluded.pr_url,
                     error_message=excluded.error_message,
-                    raw_json=excluded.raw_json
+                    raw_json=excluded.raw_json,
+                    route=excluded.route
             """, (
                 task_id,
                 data.get("slug", ""),
@@ -181,6 +194,7 @@ def migrate_tasks() -> int:
                 data.get("merged_into", ""),
                 data.get("error_message", ""),
                 json.dumps(data),
+                data.get("route", ""),
             ))
             count += 1
         except (json.JSONDecodeError, OSError):
