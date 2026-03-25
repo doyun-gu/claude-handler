@@ -221,14 +221,38 @@ count_tasks() {
 update_task_status() {
     local task_file="$1" new_status="$2"
     shift 2
-    # Update JSON file (legacy, keeps files in sync)
-    python3 "$QM" update-status "$task_file" "$new_status" "$@" 2>/dev/null || log_error "D-020" "Queue manager crash on update-status for $task_file"
-    # Also update SQLite
+    local qm_err task_id
+
+    # Update JSON file via queue-manager
+    qm_err=$(python3 "$QM" update-status "$task_file" "$new_status" "$@" 2>&1)
+    if [[ $? -ne 0 ]]; then
+        log_error "D-020" "Queue manager failed for $task_file -> $new_status: ${qm_err:0:200}"
+        # Fallback: update JSON directly when queue-manager fails
+        python3 -c "
+import json, sys
+from datetime import datetime, timezone
+f = '$task_file'
+try:
+    d = json.loads(open(f).read())
+    d['status'] = '$new_status'
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    if '$new_status' == 'running': d['started_at'] = now
+    elif '$new_status' in ('completed','failed','blocked'): d['finished_at'] = now
+    open(f, 'w').write(json.dumps(d, indent=2))
+except Exception as e:
+    print(f'D-020-FALLBACK: {e}', file=sys.stderr)
+" 2>>"$ERROR_LOG" || log_error "D-020" "JSON fallback also failed for $task_file"
+    fi
+
+    # Update SQLite (primary source of truth)
     if [[ -f "$TASK_DB" ]]; then
-        local task_id
         task_id=$(task_field "$task_file" id "") 2>/dev/null
         if [[ -n "$task_id" ]]; then
-            python3 "$TASK_DB" status "$task_id" "$new_status" "$@" 2>/dev/null
+            local db_err
+            db_err=$(python3 "$TASK_DB" status "$task_id" "$new_status" "$@" 2>&1)
+            if [[ $? -ne 0 ]]; then
+                log_error "D-022" "task-db.py failed for $task_id -> $new_status: ${db_err:0:200}"
+            fi
         fi
     fi
 }

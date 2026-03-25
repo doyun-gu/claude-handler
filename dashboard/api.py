@@ -1502,6 +1502,113 @@ async def get_queue():
     return list(projects.values())
 
 
+@app.get("/api/diagnostics")
+async def get_diagnostics():
+    """Cross-database consistency check and sync health report.
+
+    Compares fleet.db, tasks.db, and JSON files to find discrepancies.
+    Returns actionable error codes for each issue found.
+    """
+    import sqlite3 as _sqlite3
+
+    issues = []
+    fleet_conn = get_conn()
+    tasks_db_path = FLEET_DIR / "tasks.db"
+    tasks_dir = FLEET_DIR / "tasks"
+
+    # fleet.db task counts
+    fleet_counts = {}
+    for row in fleet_conn.execute(
+        "SELECT status, COUNT(*) as c FROM tasks GROUP BY status"
+    ).fetchall():
+        fleet_counts[row["status"]] = row["c"]
+
+    # tasks.db task counts
+    tasks_counts = {}
+    if tasks_db_path.exists():
+        try:
+            src = _sqlite3.connect(str(tasks_db_path))
+            src.row_factory = _sqlite3.Row
+            for row in src.execute(
+                "SELECT status, COUNT(*) as c FROM tasks GROUP BY status"
+            ).fetchall():
+                tasks_counts[row["status"]] = row["c"]
+
+            # Find status mismatches between the two DBs
+            mismatches = []
+            fleet_tasks = {
+                r["id"]: r["status"]
+                for r in fleet_conn.execute("SELECT id, status FROM tasks").fetchall()
+            }
+            for row in src.execute("SELECT id, status, error_message FROM tasks").fetchall():
+                fleet_status = fleet_tasks.get(row["id"])
+                if fleet_status and fleet_status != row["status"]:
+                    mismatches.append({
+                        "id": row["id"],
+                        "fleet_db": fleet_status,
+                        "tasks_db": row["status"],
+                        "error": row["error_message"] or "",
+                        "code": "DIAG-001",  # Status mismatch
+                    })
+            if mismatches:
+                issues.extend(mismatches)
+            src.close()
+        except _sqlite3.Error as e:
+            issues.append({"code": "DIAG-002", "error": f"Cannot read tasks.db: {e}"})
+    else:
+        issues.append({"code": "DIAG-003", "error": "tasks.db not found"})
+
+    # JSON file vs fleet.db mismatches
+    json_mismatches = []
+    if tasks_dir.exists():
+        for f in tasks_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text())
+                tid = data.get("id", f.stem)
+                row = fleet_conn.execute(
+                    "SELECT status FROM tasks WHERE id = ?", (tid,)
+                ).fetchone()
+                if row and row["status"] != data.get("status"):
+                    json_mismatches.append({
+                        "id": tid,
+                        "json_status": data.get("status"),
+                        "fleet_db": row["status"],
+                        "code": "DIAG-004",  # JSON vs DB mismatch
+                    })
+            except (json.JSONDecodeError, OSError):
+                pass
+    if json_mismatches:
+        issues.extend(json_mismatches)
+
+    # Daemon health
+    daemon_alive = False
+    heartbeat_file = FLEET_DIR / "heartbeat"
+    if heartbeat_file.exists():
+        try:
+            hb = heartbeat_file.read_text().strip()
+            parts = dict(kv.split("=") for kv in hb.split() if "=" in kv)
+            ts = int(parts.get("timestamp", "0"))
+            if time.time() - ts < 120:
+                daemon_alive = True
+        except (ValueError, OSError):
+            pass
+
+    return {
+        "healthy": len(issues) == 0,
+        "fleet_db": fleet_counts,
+        "tasks_db": tasks_counts,
+        "daemon_alive": daemon_alive,
+        "issues": issues,
+        "issue_count": len(issues),
+        "error_codes": {
+            "DIAG-001": "Status mismatch between fleet.db and tasks.db",
+            "DIAG-002": "Cannot read tasks.db",
+            "DIAG-003": "tasks.db not found",
+            "DIAG-004": "JSON file status differs from fleet.db",
+        },
+    }
+
+
 @app.get("/api/timeline")
 async def get_timeline(hours: int = Query(24)):
     """Task start/end times for the timeline chart."""
