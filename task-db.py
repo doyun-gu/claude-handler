@@ -448,6 +448,125 @@ def get_stats():
     }
 
 
+def count_by_status(status):
+    """Count tasks with a given status."""
+    db = get_db(readonly=True)
+    row = db.execute(
+        "SELECT COUNT(*) as cnt FROM tasks WHERE status = ?", (status,)
+    ).fetchone()
+    db.close()
+    return row["cnt"] if row else 0
+
+
+def claim_next_for_daemon(blocked_projects=None, max_parallel=3):
+    """
+    Claim the next task for the daemon, respecting:
+    - Priority ordering (highest first)
+    - One task per project
+    - Dependency chains (depends_on must be completed)
+    - Parallel limits
+    Returns task dict or None.
+    """
+    if blocked_projects is None:
+        blocked_projects = set()
+
+    db = get_db()
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    try:
+        db.execute("BEGIN IMMEDIATE")
+
+        # Get projects with running tasks
+        running_projects = {
+            row["project_name"]
+            for row in db.execute(
+                "SELECT DISTINCT project_name FROM tasks WHERE status = 'running'"
+            ).fetchall()
+        }
+
+        # Check parallel limit
+        running_count = len(running_projects)
+        if running_count >= max_parallel:
+            db.execute("COMMIT")
+            db.close()
+            return None
+
+        all_blocked = running_projects | blocked_projects
+
+        # Get all queued tasks ordered by priority DESC, then dispatched_at ASC
+        if all_blocked:
+            placeholders = ",".join("?" for _ in all_blocked)
+            queued = db.execute(f"""
+                SELECT * FROM tasks
+                WHERE status = 'queued'
+                AND project_name NOT IN ({placeholders})
+                ORDER BY priority DESC, dispatched_at ASC
+            """, list(all_blocked)).fetchall()
+        else:
+            queued = db.execute("""
+                SELECT * FROM tasks
+                WHERE status = 'queued'
+                ORDER BY priority DESC, dispatched_at ASC
+            """).fetchall()
+
+        if not queued:
+            db.execute("COMMIT")
+            db.close()
+            return None
+
+        # Get completed task slugs/ids for dependency checking
+        completed = set()
+        for row in db.execute(
+            "SELECT slug, id FROM tasks WHERE status IN ('completed', 'merged')"
+        ).fetchall():
+            completed.add(row["slug"])
+            completed.add(row["id"])
+
+        # Find first task with satisfied dependencies
+        chosen = None
+        for task in queued:
+            depends = json.loads(task["depends_on"] or "[]")
+            if depends:
+                if not all(dep in completed for dep in depends):
+                    continue  # Dependencies not met, skip
+            chosen = task
+            break
+
+        if not chosen:
+            db.execute("COMMIT")
+            db.close()
+            return None
+
+        # Claim it atomically
+        db.execute("""
+            UPDATE tasks
+            SET status = 'running', started_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'queued'
+        """, (now, now, chosen["id"]))
+
+        db.execute("COMMIT")
+
+        # Also write the .prompt file path for the daemon to read
+        result = dict(chosen)
+
+        # Ensure prompt is available (read from .prompt file if needed)
+        if not result.get("prompt") and result.get("prompt_file"):
+            prompt_path = TASKS_DIR / result["prompt_file"]
+            if prompt_path.exists():
+                result["prompt"] = prompt_path.read_text()
+
+        db.close()
+        return result
+
+    except Exception as e:
+        try:
+            db.execute("ROLLBACK")
+        except Exception:
+            pass
+        db.close()
+        raise e
+
+
 def add_from_json(json_path):
     """Add a task from a JSON manifest file."""
     d = json.load(open(json_path))
@@ -512,12 +631,15 @@ if __name__ == "__main__":
 
     elif cmd == "claim":
         init_db()
-        task = claim_task()
+        task = claim_next_for_daemon()
         if task:
-            # Output as JSON for the daemon to parse
             print(json.dumps(task, indent=2))
         else:
             sys.exit(1)
+
+    elif cmd == "count" and args:
+        init_db()
+        print(count_by_status(args[0]))
 
     elif cmd == "status" and len(args) >= 2:
         task_id, status = args[0], args[1]

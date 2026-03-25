@@ -118,7 +118,19 @@ task_field() {
     echo "$result"
 }
 
+TASK_DB="$SCRIPT_DIR/task-db.py"
+
 count_tasks() {
+    # Primary: SQLite
+    if [[ -f "$TASK_DB" ]]; then
+        local count
+        count=$(python3 "$TASK_DB" count "$1" 2>/dev/null) || count=""
+        if [[ -n "$count" ]]; then
+            echo "$count"
+            return 0
+        fi
+    fi
+    # Fallback: queue manager (JSON)
     local result
     result=$(python3 "$QM" count-status "$1" 2>&1) || {
         log_error "D-020" "Queue manager crash on count-status: ${result:0:100}"
@@ -129,7 +141,25 @@ count_tasks() {
 }
 
 update_task_status() {
-    python3 "$QM" update-status "$@" 2>/dev/null || log_error "D-020" "Queue manager crash on update-status for $1"
+    local task_file="$1" new_status="$2"
+    shift 2
+    # Update JSON file (legacy, keeps files in sync)
+    python3 "$QM" update-status "$task_file" "$new_status" "$@" 2>/dev/null || log_error "D-020" "Queue manager crash on update-status for $task_file"
+    # Also update SQLite
+    if [[ -f "$TASK_DB" ]]; then
+        local task_id
+        task_id=$(task_field "$task_file" id "") 2>/dev/null
+        if [[ -n "$task_id" ]]; then
+            python3 "$TASK_DB" status "$task_id" "$new_status" "$@" 2>/dev/null
+        fi
+    fi
+}
+
+# Import any new JSON tasks into SQLite (bridge: JSON files -> DB)
+sync_json_to_db() {
+    if [[ -f "$TASK_DB" ]]; then
+        python3 "$TASK_DB" import-json 2>/dev/null
+    fi
 }
 
 # ─── Safe file read (TOCTOU-resistant) ────────────────────────────────────────
@@ -883,39 +913,75 @@ while true; do
         fi
     fi
 
-    # Scan for queued tasks, one per project, up to MAX_PARALLEL
-    for f in "$TASKS_DIR"/*.json; do
-        [[ -f "$f" ]] || continue
+    # ─── Sync new JSON tasks into SQLite ─────────────────────
+    sync_json_to_db
 
-        # Respect parallel limit
-        if (( (running + launched) >= MAX_PARALLEL )); then
-            if (( launched == 0 )); then
-                log_error "D-051" "Too many running tasks ($running/$MAX_PARALLEL) — waiting"
+    # ─── Claim tasks from SQLite (atomic, priority-ordered) ──
+    # SQLite claim handles: priority ordering, one-per-project,
+    # dependency chains, parallel limits — all atomically.
+    if [[ -f "$TASK_DB" ]]; then
+        while (( (running + launched) < MAX_PARALLEL )); do
+            local claimed_json
+            claimed_json=$(python3 "$TASK_DB" claim 2>/dev/null) || break
+
+            # Extract task file path from claimed task
+            local claimed_id claimed_project
+            claimed_id=$(echo "$claimed_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])" 2>/dev/null) || break
+            claimed_project=$(echo "$claimed_json" | python3 -c "import sys,json; print(json.load(sys.stdin)['project_name'])" 2>/dev/null) || break
+
+            # Skip if project is frozen
+            if is_project_frozen "$claimed_project" 2>/dev/null; then
+                log_error "D-041" "Project $claimed_project is frozen — task $claimed_id skipped"
+                python3 "$TASK_DB" status "$claimed_id" "queued" 2>/dev/null  # unclaim
+                break
             fi
-            break
-        fi
 
-        status=""
-        status=$(task_field "$f" status "")
-        [[ "$status" == "queued" ]] || continue
+            # Find the JSON file for run_task_async
+            local task_file="$TASKS_DIR/${claimed_id}.json"
+            if [[ ! -f "$task_file" ]]; then
+                log_error "D-060" "Claimed task $claimed_id but JSON file not found — writing from DB"
+                # Write JSON from DB data so run_task can read it
+                echo "$claimed_json" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+json.dump(d, open(sys.argv[1], 'w'), indent=2)
+" "$task_file" 2>/dev/null
+            fi
 
-        project=""
-        project=$(task_field "$f" project_name "unknown")
+            queued=$(count_tasks "queued")
+            log "Launching task for $claimed_project ($queued queued) [SQLite claim]"
+            run_task_async "$task_file"
+            launched=$((launched + 1))
+        done
+    else
+        # ─── Fallback: scan JSON files (legacy mode) ─────────
+        for f in "$TASKS_DIR"/*.json; do
+            [[ -f "$f" ]] || continue
 
-        # Skip if project already has a running task
-        is_project_running "$project" && continue
+            if (( (running + launched) >= MAX_PARALLEL )); then
+                break
+            fi
 
-        # Skip if project is frozen (safe: never crashes the loop)
-        if is_project_frozen "$project" 2>/dev/null; then
-            log_error "D-041" "Project $project is frozen — task skipped"
-            continue
-        fi
+            status=""
+            status=$(task_field "$f" status "")
+            [[ "$status" == "queued" ]] || continue
 
-        queued=$(count_tasks "queued")
-        log "Launching task for $project ($queued queued)"
-        run_task_async "$f"
-        launched=$((launched + 1))
-    done
+            project=""
+            project=$(task_field "$f" project_name "unknown")
+
+            is_project_running "$project" && continue
+
+            if is_project_frozen "$project" 2>/dev/null; then
+                log_error "D-041" "Project $project is frozen — task skipped"
+                continue
+            fi
+
+            queued=$(count_tasks "queued")
+            log "Launching task for $project ($queued queued) [JSON fallback]"
+            run_task_async "$f"
+            launched=$((launched + 1))
+        done
+    fi
 
     if (( launched > 0 )); then
         running=$(count_running)
