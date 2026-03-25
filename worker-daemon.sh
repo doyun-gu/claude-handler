@@ -533,6 +533,223 @@ try_auto_merge() {
     fi
 }
 
+# ─── Planner: expand short prompts into detailed specs ────────────────────────
+
+run_planner() {
+    local task_id="$1" task_file="$2" project_path="$3" task_prompt="$4"
+
+    local spec_file="$TASKS_DIR/${task_id}.spec.md"
+    local planner_log="$LOGS_DIR/${task_id}.planner.log"
+
+    local planner_system="You are a PLANNER agent. Your job is to expand a short task description into a detailed specification that a developer agent can implement and an evaluator agent can grade.
+
+PLANNER RULES:
+1. Read the project's CLAUDE.md and codebase structure to understand context.
+2. Write a specification to: ${spec_file}
+3. The spec MUST include:
+   - Objective (one paragraph expanding the prompt)
+   - Acceptance criteria (numbered, each must be testable)
+   - Implementation approach (ordered steps)
+   - Files to modify (with reasons)
+   - Edge cases to handle
+   - Out of scope (prevent scope creep)
+   - Evaluator grading rubric (table: criterion, weight, how to verify)
+4. Keep the spec under 200 lines. Be specific, not verbose.
+5. Do NOT implement anything. Only write the spec file.
+6. Spend at most 15 turns reading the project and writing the spec."
+
+    log "  Planner: expanding prompt into spec"
+    "$CLAUDE_BIN" -p \
+        --dangerously-skip-permissions \
+        --max-turns 20 \
+        --append-system-prompt "$planner_system" \
+        "Create a detailed specification for this task.
+
+## Task
+${task_prompt}
+
+## Project
+Path: ${project_path}
+Read the project's CLAUDE.md and key source files to understand the codebase.
+Write the spec to: ${spec_file}" \
+        2>&1 | tee "$planner_log" || {
+            warn "  Planner session failed -- using original prompt"
+            return 1
+        }
+
+    if [[ -f "$spec_file" && -s "$spec_file" ]]; then
+        ok "  Planner produced spec: $(wc -l < "$spec_file") lines"
+        echo "$spec_file"
+    else
+        warn "  Planner produced no spec file"
+        echo ""
+    fi
+}
+
+# ─── Evaluator: independent QA of completed work ─────────────────────────────
+
+run_evaluator() {
+    local task_id="$1" task_file="$2" project_path="$3" branch="$4"
+    local original_prompt="$5" eval_round="$6"
+
+    local eval_dir="$FLEET_DIR/eval"
+    local eval_log="$LOGS_DIR/${task_id}.eval-${eval_round}.log"
+    local verdict_file="$eval_dir/${task_id}.verdict-${eval_round}.json"
+    local critique_file="$eval_dir/${task_id}.critique-${eval_round}.md"
+    mkdir -p "$eval_dir"
+
+    # Gather branch diff
+    local base_branch
+    base_branch=$(task_field "$task_file" base_branch "main")
+    local diff_stat diff_full
+    diff_stat=$(cd "$project_path" && git diff "origin/${base_branch}...${branch}" --stat 2>/dev/null | tail -20) || diff_stat="(diff unavailable)"
+    diff_full=$(cd "$project_path" && git diff "origin/${base_branch}...${branch}" 2>/dev/null | head -2000) || diff_full=""
+
+    # Read generator summary if it exists
+    local summary=""
+    [[ -f "$LOGS_DIR/${task_id}.summary.md" ]] && summary=$(head -200 "$LOGS_DIR/${task_id}.summary.md")
+
+    # Determine task type for grading criteria
+    local task_type="default"
+    local slug_lower
+    slug_lower=$(echo "$(task_field "$task_file" slug "")" | tr '[:upper:]' '[:lower:]')
+
+    local override_type
+    override_type=$(task_field "$task_file" eval_criteria_type "")
+    if [[ -n "$override_type" ]]; then
+        task_type="$override_type"
+    else
+        case "$slug_lower" in
+            *ui*|*frontend*|*design*|*layout*|*theme*|*css*|*visual*|*hmi*|*animation*) task_type="ui" ;;
+            *engine*|*solver*|*algorithm*|*matrix*|*convergence*|*kron*|*idp*|*pf*) task_type="engine" ;;
+            *api*|*endpoint*|*route*|*backend*|*server*|*sse*|*rest*) task_type="api" ;;
+            *fix*|*bug*|*crash*|*error*|*broken*|*hotfix*) task_type="fix" ;;
+            *refactor*|*rename*|*restructure*|*cleanup*|*reorganize*) task_type="refactor" ;;
+            *doc*|*readme*|*changelog*|*comment*) task_type="docs" ;;
+            *test*|*spec*|*validation*|*coverage*) task_type="test" ;;
+            *infra*|*ci*|*docker*|*deploy*|*config*|*daemon*) task_type="infra" ;;
+        esac
+    fi
+
+    # Load grading criteria
+    local criteria_file="$SCRIPT_DIR/eval-criteria/${task_type}.md"
+    local criteria=""
+    if [[ -f "$criteria_file" ]]; then
+        criteria=$(cat "$criteria_file")
+    elif [[ -f "$SCRIPT_DIR/eval-criteria/default.md" ]]; then
+        criteria=$(cat "$SCRIPT_DIR/eval-criteria/default.md")
+    else
+        criteria="Judge correctness, quality, testing, and completeness. Score 0-100."
+    fi
+
+    # Load planner spec if it exists (overrides criteria for task-specific rubric)
+    local spec_content=""
+    [[ -f "$TASKS_DIR/${task_id}.spec.md" ]] && spec_content=$(cat "$TASKS_DIR/${task_id}.spec.md")
+
+    # Load previous critique if retry round
+    local prev_section=""
+    if (( eval_round > 1 )); then
+        local prev_file="$eval_dir/${task_id}.critique-$((eval_round - 1)).md"
+        if [[ -f "$prev_file" ]]; then
+            prev_section="
+## Previous Critique (Round $((eval_round - 1)))
+The generator was given this feedback and tried again. Check whether the issues were fixed:
+
+$(cat "$prev_file")
+"
+        fi
+    fi
+
+    # Build evaluator system prompt
+    local eval_system="You are an EVALUATOR for an autonomous coding agent fleet. You independently assess whether a task was completed correctly. You are NOT the agent that did the work.
+
+EVALUATOR RULES:
+1. Be rigorous but fair. Judge against the SPECIFIC criteria provided.
+2. Write your verdict as JSON to: ${verdict_file}
+   Format: {\"verdict\": \"PASS\" or \"FAIL\", \"score\": 0-100, \"issues\": [\"issue1\", \"issue2\"], \"summary\": \"one line\"}
+3. If FAIL, also write actionable critique to: ${critique_file}
+   Include: specific files, line numbers, what is wrong, what to fix.
+4. Do NOT make code changes yourself. Only evaluate and write verdict files.
+5. For web UI tasks: use /browse or /qa to verify the UI renders and works.
+6. For API tasks: verify endpoints respond correctly (curl or test runner).
+7. For engine/algorithm tasks: verify tests pass and results are numerically correct.
+8. Score guide: 90-100=excellent, 70-89=good with minor issues, 50-69=significant gaps, <50=major failures."
+
+    # Build evaluator task prompt
+    local eval_prompt="Evaluate whether this task was completed correctly.
+
+## Original Task
+${original_prompt}
+
+## Branch Diff Summary
+\`\`\`
+${diff_stat}
+\`\`\`
+
+## Detailed Diff (first 2000 lines)
+\`\`\`diff
+${diff_full}
+\`\`\`
+
+## Generator Summary
+${summary}
+
+## Grading Criteria
+${criteria}
+"
+    # Append spec rubric if planner ran
+    if [[ -n "$spec_content" ]]; then
+        eval_prompt="${eval_prompt}
+## Planner Specification (use this rubric for task-specific grading)
+${spec_content}
+"
+    fi
+
+    # Append previous critique if retry
+    [[ -n "$prev_section" ]] && eval_prompt="${eval_prompt}${prev_section}"
+
+    eval_prompt="${eval_prompt}
+## Instructions
+1. Read the original task carefully
+2. Review the diff against the grading criteria
+3. For web/UI tasks: verify visually with /browse or /qa
+4. For code tasks: check tests pass, logic is correct
+5. Write verdict JSON to: ${verdict_file}
+6. If FAIL: write actionable critique to: ${critique_file}
+"
+
+    # Run evaluator Claude session (short: 30 turns max, separate context)
+    log "  Evaluator round ${eval_round}: launching (type=${task_type}, max_turns=30)"
+    "$CLAUDE_BIN" -p \
+        --dangerously-skip-permissions \
+        --max-turns 30 \
+        --append-system-prompt "$eval_system" \
+        "$eval_prompt" \
+        2>&1 | tee "$eval_log" || {
+            log_error "D-070" "Evaluator session crashed for task $task_id round $eval_round"
+            echo "UNKNOWN"
+            return 1
+        }
+
+    # Parse verdict
+    if [[ -f "$verdict_file" ]]; then
+        local verdict
+        verdict=$(python3 -c "
+import json, sys
+try:
+    d = json.load(open('${verdict_file}'))
+    print(d.get('verdict', 'UNKNOWN'))
+except Exception as e:
+    print('UNKNOWN', file=sys.stderr)
+    print('UNKNOWN')
+" 2>/dev/null) || verdict="UNKNOWN"
+        echo "$verdict"
+    else
+        log_error "D-071" "Verdict file not found after evaluator for task $task_id round $eval_round"
+        echo "UNKNOWN"
+    fi
+}
+
 # ─── Run a single task ────────────────────────────────────────────────────────
 
 run_task() {
@@ -635,6 +852,34 @@ run_task() {
 
     [[ -n "$subdir" ]] && { cd "$subdir" || { err "cd failed: $subdir"; return 1; }; }
 
+    # ─── Planner (optional) ──────────────────────────────
+    local planner_enabled
+    planner_enabled=$(task_field "$task_file" planner "false")
+    # Auto-enable for very short prompts
+    if [[ "$planner_enabled" == "false" && ${#task_prompt} -lt 200 ]]; then
+        planner_enabled="true"
+        log "Auto-enabling planner (prompt is ${#task_prompt} chars)"
+    fi
+
+    if [[ "$planner_enabled" == "true" ]]; then
+        log "Running planner for task $task_id"
+        write_task_status "$task_id" "planning" "Planner expanding prompt" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+
+        local spec_file
+        spec_file=$(run_planner "$task_id" "$task_file" "$project_path" "$task_prompt")
+
+        if [[ -n "$spec_file" && -f "$spec_file" ]]; then
+            # Prepend spec to generator prompt
+            task_prompt="## Task Specification (from planner)
+
+$(cat "$spec_file")
+
+## Original Task Prompt
+
+${task_prompt}"
+        fi
+    fi
+
     # Build worker prompt
     local queued_count
     queued_count=$(count_tasks "queued")
@@ -671,7 +916,8 @@ WORKER RULES:
    On failure, also set error_message to a one-line summary of what went wrong.
 9. Use gstack skills as appropriate: /review before pushing, /qa if testing a web app.
 10. There are ${queued_count} more tasks in the queue after this one. Estimated time: ${estimated_time}. Work efficiently — the daemon will start the next task when you finish.
-11. PERFORMANCE: When running long computations (pytest suites, simulations, validation scripts), use run_in_background instead of waiting synchronously. Continue writing the next file, feature, or independent subtask while tests run. Check results before committing. Never block on a 5-minute test run when you have other work to do."
+11. PERFORMANCE: When running long computations (pytest suites, simulations, validation scripts), use run_in_background instead of waiting synchronously. Continue writing the next file, feature, or independent subtask while tests run. Check results before committing. Never block on a 5-minute test run when you have other work to do.
+12. CHECKPOINTING: For long tasks, write a handoff file to ~/.claude-fleet/eval/${task_id}.handoff.md every time you complete a major subtask. Include: what is done (checked items), what is in progress, what remains (unchecked items), key decisions made. This lets a fresh session pick up your work if the context gets too large."
 
     # Run Claude
     local log_file="$LOGS_DIR/${task_id}.log"
@@ -686,6 +932,8 @@ WORKER RULES:
     local heartbeat_pid=0
     (
         local prev_size=0
+        local start_epoch
+        start_epoch=$(date +%s)
         while true; do
             sleep 60
             local cur_size=0
@@ -697,6 +945,18 @@ WORKER RULES:
             fi
             # Also touch a progress file for simple monitoring
             echo "$cur_size" > "$TASK_STATUS_DIR/${task_id}.progress" 2>/dev/null
+
+            # Context reset trigger detection
+            local elapsed_min=$(( ($(date +%s) - start_epoch) / 60 ))
+            local reset_file="$FLEET_DIR/eval/${task_id}.reset-trigger"
+            if [[ ! -f "$reset_file" ]]; then
+                if (( cur_size > 512000 )); then
+                    echo "RESET_TRIGGER=log_size" > "$reset_file" 2>/dev/null
+                elif (( elapsed_min > 60 )); then
+                    echo "RESET_TRIGGER=time_${elapsed_min}m" > "$reset_file" 2>/dev/null
+                fi
+            fi
+
             prev_size=$cur_size
         done
     ) &
@@ -725,10 +985,174 @@ WORKER RULES:
     kill "$heartbeat_pid" 2>/dev/null
     wait "$heartbeat_pid" 2>/dev/null
 
+    # ─── Context reset: continue in fresh session if handoff exists ────
+    local reset_trigger="$FLEET_DIR/eval/${task_id}.reset-trigger"
+    local handoff_file="$FLEET_DIR/eval/${task_id}.handoff.md"
+    local context_reset_round=0
+    local max_context_resets=3
+
+    while [[ -f "$reset_trigger" && -f "$handoff_file" && $exit_code -eq 0 ]] && (( context_reset_round < max_context_resets )); do
+        context_reset_round=$((context_reset_round + 1))
+        local trigger_reason
+        trigger_reason=$(cat "$reset_trigger" 2>/dev/null)
+        log "Context reset (round $context_reset_round/$max_context_resets) for task $task_id ($trigger_reason)"
+        rm -f "$reset_trigger"
+
+        local handoff_content
+        handoff_content=$(cat "$handoff_file")
+
+        local continuation_prompt="CONTINUATION: Picking up from a previous session that ran out of context.
+
+## Handoff from Previous Session
+${handoff_content}
+
+## Original Task
+${task_prompt}
+
+Continue from where the previous session left off. Run 'git log --oneline -10' to see what has been committed.
+All work continues on branch ${branch}. Push and open/update PR when done."
+
+        local reset_log="$LOGS_DIR/${task_id}.reset-${context_reset_round}.log"
+        write_task_status "$task_id" "running" "Context reset round $context_reset_round" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+
+        # Remove old handoff so generator writes a new one if needed
+        rm -f "$handoff_file"
+
+        # Fresh heartbeat monitor for continuation
+        (
+            local prev_size=0 start_epoch
+            start_epoch=$(date +%s)
+            while true; do
+                sleep 60
+                local cur_size=0
+                [[ -f "$reset_log" ]] && cur_size=$(wc -c < "$reset_log" 2>/dev/null || echo 0)
+                if [[ -f "$SCRIPT_DIR/task-db.py" ]]; then
+                    python3 "$SCRIPT_DIR/task-db.py" heartbeat "$task_id" "$cur_size" "1" 2>/dev/null
+                fi
+                local elapsed_min=$(( ($(date +%s) - start_epoch) / 60 ))
+                if [[ ! -f "$reset_trigger" ]]; then
+                    if (( cur_size > 512000 )); then
+                        echo "RESET_TRIGGER=log_size_r${context_reset_round}" > "$reset_trigger" 2>/dev/null
+                    elif (( elapsed_min > 60 )); then
+                        echo "RESET_TRIGGER=time_r${context_reset_round}_${elapsed_min}m" > "$reset_trigger" 2>/dev/null
+                    fi
+                fi
+                prev_size=$cur_size
+            done
+        ) &
+        local reset_hb_pid=$!
+
+        exit_code=0
+        "$CLAUDE_BIN" -p \
+            --dangerously-skip-permissions \
+            --max-turns "$max_turns" \
+            --append-system-prompt "$worker_prompt" \
+            "$continuation_prompt" \
+            2>&1 | tee "$reset_log" || exit_code=${PIPESTATUS[0]:-$?}
+
+        kill "$reset_hb_pid" 2>/dev/null
+        wait "$reset_hb_pid" 2>/dev/null
+    done
+
     # Handle result
     if [[ $exit_code -eq 0 ]]; then
-        ok "Task $task_id completed successfully"
-        write_task_status "$task_id" "completed" "Task finished successfully" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+        ok "Task $task_id completed successfully (generator done)"
+
+        # ─── Evaluator loop ───────────────────────────────────
+        local eval_enabled eval_passed=true eval_round=0 eval_total_rounds=0
+        local eval_score=0 eval_verdict="SKIPPED"
+
+        eval_enabled=$(task_field "$task_file" evaluate "auto")
+
+        # "auto" = evaluate features/engine/api, skip docs/infra/cleanup
+        if [[ "$eval_enabled" == "auto" ]]; then
+            local slug_check
+            slug_check=$(echo "$(task_field "$task_file" slug "")" | tr '[:upper:]' '[:lower:]')
+            case "$slug_check" in
+                *doc*|*readme*|*context*|*cleanup*|*lint*|*changelog*) eval_enabled="false" ;;
+                *) eval_enabled="true" ;;
+            esac
+        fi
+
+        local max_eval_rounds
+        max_eval_rounds=$(task_field "$task_file" max_eval_rounds "2")
+
+        if [[ "$eval_enabled" == "true" ]]; then
+            eval_passed=false
+            eval_round=1
+
+            while (( eval_round <= max_eval_rounds )); do
+                log "Running evaluator (round $eval_round/$max_eval_rounds) for task $task_id"
+                write_task_status "$task_id" "evaluating" "Evaluator round $eval_round" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+
+                eval_verdict=$(run_evaluator "$task_id" "$task_file" "$project_path" "$branch" "$task_prompt" "$eval_round")
+                eval_total_rounds=$eval_round
+
+                # Try to read score from verdict file
+                local verdict_file="$FLEET_DIR/eval/${task_id}.verdict-${eval_round}.json"
+                if [[ -f "$verdict_file" ]]; then
+                    eval_score=$(python3 -c "import json; print(json.load(open('${verdict_file}')).get('score', 0))" 2>/dev/null) || eval_score=0
+                fi
+
+                if [[ "$eval_verdict" == "PASS" ]]; then
+                    eval_passed=true
+                    ok "  Evaluator PASSED (round $eval_round, score $eval_score)"
+                    break
+                elif [[ "$eval_verdict" == "FAIL" && eval_round -lt max_eval_rounds ]]; then
+                    warn "  Evaluator FAILED (round $eval_round, score $eval_score) -- re-running generator with critique"
+                    eval_round=$((eval_round + 1))
+
+                    # Build retry prompt from critique
+                    local critique_file="$FLEET_DIR/eval/${task_id}.critique-$((eval_round - 1)).md"
+                    local critique_content=""
+                    [[ -f "$critique_file" ]] && critique_content=$(cat "$critique_file")
+
+                    local retry_prompt="RETRY: Your previous attempt at this task was evaluated and found insufficient.
+
+## Original Task
+${task_prompt}
+
+## Evaluator Critique (Round $((eval_round - 1)))
+${critique_content}
+
+## Instructions
+You are on branch ${branch}. Your previous work is already committed.
+Pick up where you left off and fix the issues identified above.
+Do NOT create a new branch -- continue on ${branch}.
+Push and update the PR when done."
+
+                    # Re-run generator (fresh context, same branch)
+                    local retry_log="$LOGS_DIR/${task_id}.retry-${eval_round}.log"
+                    log "  Re-running generator (retry round $eval_round)"
+                    write_task_status "$task_id" "running" "Generator retry round $eval_round" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+
+                    "$CLAUDE_BIN" -p \
+                        --dangerously-skip-permissions \
+                        --max-turns "$max_turns" \
+                        --append-system-prompt "$worker_prompt" \
+                        "$retry_prompt" \
+                        2>&1 | tee "$retry_log" || {
+                            log_error "D-073" "Generator retry failed for task $task_id round $eval_round"
+                            break
+                        }
+                    # Loop continues to run evaluator on the retry
+                else
+                    warn "  Evaluator FAILED or UNKNOWN (final round $eval_round, score $eval_score) -- proceeding"
+                    break
+                fi
+            done
+        fi
+
+        # Update eval metadata in task DB
+        if [[ -f "$SCRIPT_DIR/task-db.py" ]]; then
+            python3 "$SCRIPT_DIR/task-db.py" status "$task_id" "completed" \
+                "eval_result=$eval_verdict" \
+                "eval_rounds=$eval_total_rounds" \
+                "eval_score=$eval_score" 2>/dev/null || true
+        fi
+
+        ok "Task $task_id completed (eval: $eval_verdict, rounds: $eval_total_rounds, score: $eval_score)"
+        write_task_status "$task_id" "completed" "Task finished (eval: $eval_verdict)" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
 
         local pr_url=""
         pr_url=$(cd "$project_path" && gh pr list --head "$branch" --json url -q '.[0].url' 2>/dev/null) || pr_url=""
@@ -751,22 +1175,44 @@ WORKER RULES:
 
         # Write review-queue item only if not auto-merged
         if [[ "$auto_merged" == "false" ]]; then
+            local eval_section=""
+            if [[ "$eval_verdict" != "SKIPPED" ]]; then
+                eval_section="
+**Eval Result:** ${eval_verdict} (score: ${eval_score}/100, rounds: ${eval_total_rounds})
+"
+                if [[ "$eval_verdict" == "FAIL" ]]; then
+                    local last_verdict="$FLEET_DIR/eval/${task_id}.verdict-${eval_total_rounds}.json"
+                    if [[ -f "$last_verdict" ]]; then
+                        local issues
+                        issues=$(python3 -c "import json; [print(f'- {i}') for i in json.load(open('${last_verdict}')).get('issues',[])]" 2>/dev/null) || issues=""
+                        [[ -n "$issues" ]] && eval_section="${eval_section}
+**Evaluator Issues:**
+${issues}
+"
+                    fi
+                fi
+            fi
+
             cat > "$REVIEW_DIR/${task_id}-completed.md" << REVIEW_EOF
 ---
 task_id: ${task_id}
 project: $(basename "$project_path")
 type: completed
 priority: normal
+eval_result: ${eval_verdict}
+eval_score: ${eval_score}
+eval_rounds: ${eval_total_rounds}
 created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 
 ## Task Completed
-
+${eval_section}
 **Branch:** ${branch}
 **Task:** $(echo "$task_prompt" | head -1)
 
 Check the PR and summary:
 - Summary: ~/.claude-fleet/logs/${task_id}.summary.md
+- Eval verdicts: ~/.claude-fleet/eval/${task_id}.verdict-*.json
 - Run \`/worker-review\` to review and merge.
 REVIEW_EOF
         fi

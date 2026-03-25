@@ -82,6 +82,10 @@ def init_db():
             pr_url TEXT DEFAULT '',
             error_message TEXT DEFAULT '',
             cost_usd REAL DEFAULT 0.0,
+            eval_result TEXT DEFAULT '',
+            eval_rounds INTEGER DEFAULT 0,
+            eval_score INTEGER DEFAULT 0,
+            eval_cost_usd REAL DEFAULT 0.0,
             created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
             updated_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
         );
@@ -108,6 +112,22 @@ def init_db():
         );
     """)
     db.close()
+
+    # Migrate existing databases: add eval columns if missing
+    db = get_db()
+    for col, coltype, default in [
+        ("eval_result", "TEXT", "''"),
+        ("eval_rounds", "INTEGER", "0"),
+        ("eval_score", "INTEGER", "0"),
+        ("eval_cost_usd", "REAL", "0.0"),
+    ]:
+        try:
+            db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {coltype} DEFAULT {default}")
+        except Exception:
+            pass  # Column already exists
+    db.commit()
+    db.close()
+
     print(f"Database initialized at {DB_PATH}", file=sys.stderr)
 
 
@@ -304,7 +324,8 @@ def update_status(task_id, status, **kwargs):
         vals.append(now)
 
     for key, val in kwargs.items():
-        if key in ("pr_url", "error_message", "pid", "pgid", "cost_usd"):
+        if key in ("pr_url", "error_message", "pid", "pgid", "cost_usd",
+                   "eval_result", "eval_rounds", "eval_score", "eval_cost_usd"):
             sets.append(f"{key} = ?")
             vals.append(val)
 

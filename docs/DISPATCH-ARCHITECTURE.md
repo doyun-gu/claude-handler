@@ -156,6 +156,68 @@ When a task completes, the daemon writes to `~/.claude-fleet/review-queue/`:
 
 Commander checks this on every session startup and surfaces items before the greeting.
 
+## Evaluator Harness
+
+After the generator completes, the daemon optionally runs an independent evaluator Claude session. This addresses self-evaluation bias (generators reliably praise their own work).
+
+```mermaid
+flowchart TB
+    subgraph TaskExecution["Task Execution Pipeline"]
+        Claim["Daemon claims task"] --> PlanCheck{"planner: true\nor prompt < 200 chars?"}
+        PlanCheck -->|yes| Planner["Planner Claude\n(20 turns, writes .spec.md)"]
+        PlanCheck -->|no| Generator
+        Planner --> Generator["Generator Claude\n(200 turns, implements task)"]
+        Generator --> ResetCheck{"Context reset\ntriggered?\n(>60min or >500KB log)"}
+        ResetCheck -->|yes| Continuation["Fresh Claude session\n(reads handoff.md)"]
+        Continuation --> ResetCheck
+        ResetCheck -->|no| EvalCheck{"evaluate: auto\nskip docs/infra?"}
+        EvalCheck -->|skip| PR["Open PR"]
+        EvalCheck -->|evaluate| Evaluator["Evaluator Claude\n(30 turns, grades work)"]
+        Evaluator --> Verdict{"Verdict?"}
+        Verdict -->|PASS| PR
+        Verdict -->|FAIL round < max| Retry["Generator retry\n(fresh session + critique)"]
+        Retry --> Evaluator
+        Verdict -->|FAIL final| PR
+        PR --> Merge{"Auto-mergeable?"}
+        Merge -->|yes| AutoMerge["gh pr merge --squash"]
+        Merge -->|no| ReviewQueue["review-queue/\n(with eval metadata)"]
+    end
+
+    style TaskExecution fill:#1a1a2e,stroke:#e0e0e0,color:#e0e0e0
+```
+
+### Evaluator Details
+
+| Aspect | Value |
+|--------|-------|
+| Max turns | 30 (evaluator is read-heavy, not write-heavy) |
+| Max rounds | 2 (configurable via `max_eval_rounds` in task JSON) |
+| Auto-skip | docs, readme, context, cleanup, lint, changelog tasks |
+| Criteria | Loaded from `eval-criteria/{type}.md` based on task slug |
+| Verdict format | JSON: `{"verdict": "PASS"/"FAIL", "score": 0-100, "issues": [...]}` |
+| Critique file | `~/.claude-fleet/eval/{task_id}.critique-{round}.md` |
+| For UI tasks | Evaluator uses /browse or /qa to verify visually |
+
+### Task JSON Fields (all optional)
+
+```json
+{
+  "evaluate": "auto",           // "true", "false", "auto" (default: "auto")
+  "max_eval_rounds": 2,         // 1-3 (default: 2)
+  "eval_criteria_type": "",     // override: "ui", "engine", "api", etc.
+  "planner": false              // run planner before generator (default: false)
+}
+```
+
+### Eval Error Codes
+
+| Code | Description | Recovery |
+|------|-------------|----------|
+| D-070 | Evaluator session crashed | Skip evaluation, proceed to review |
+| D-071 | Verdict file not found | Treat as UNKNOWN, proceed |
+| D-072 | Verdict file malformed | Treat as UNKNOWN, proceed |
+| D-073 | Generator retry failed | Mark eval as FAIL, proceed |
+
 ## Common Mistakes
 
 1. **Missing `task-db.py add`** -- daemon cannot claim tasks not registered in SQLite

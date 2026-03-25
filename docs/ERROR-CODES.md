@@ -27,6 +27,10 @@ Emitted by `worker-daemon.sh`. Logged to `~/.claude-fleet/daemon-errors.log`.
 | D-041 | Info | Project is frozen (event-based freeze window). Task skipped. | Wait for freeze window to end. |
 | D-050 | Warning | Disk space low (<1GB free). Daemon status set to degraded. | Free disk space. |
 | D-060 | Warning | Claimed task from SQLite but JSON file missing. | Auto-created from DB data. |
+| D-070 | Warning | Evaluator session crashed. | Skip evaluation, proceed to review queue. |
+| D-071 | Warning | Verdict file not found after evaluator session. | Treat as UNKNOWN, proceed. |
+| D-072 | Warning | Verdict file contains malformed JSON. | Treat as UNKNOWN, proceed. |
+| D-073 | Warning | Generator retry failed after evaluator critique. | Mark eval as FAIL, proceed to review. |
 
 ## Diagnostic Errors (FD-xxx)
 
