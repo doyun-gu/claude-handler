@@ -276,6 +276,132 @@ body {
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
 }
 
+/* ── LOC Section ──────────────────────── */
+.loc-section {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.loc-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+.loc-section-header .section-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.loc-section-header .toggle {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.loc-agg-toggle {
+  display: flex;
+  gap: 4px;
+  padding: 8px 14px 0 14px;
+}
+.loc-agg-btn {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-dim);
+  font-family: inherit;
+  transition: all 0.15s;
+}
+.loc-agg-btn:hover { background: var(--bg-hover); color: var(--text); }
+.loc-agg-btn.active { background: var(--running-bg); color: var(--running); border-color: rgba(59,130,246,0.4); }
+.loc-body {
+  padding: 10px 14px 14px;
+}
+.loc-summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-size: 12px;
+}
+.loc-stat {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.loc-added { color: var(--completed); }
+.loc-removed { color: var(--failed); }
+.loc-net { color: var(--running); }
+.loc-bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.loc-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.loc-bar-name {
+  width: 120px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text);
+  flex-shrink: 0;
+}
+.loc-bar-track {
+  flex: 1;
+  height: 18px;
+  background: var(--bg-card);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+  border: 1px solid var(--border-subtle);
+}
+.loc-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+.loc-bar-fill.total { background: var(--running); opacity: 0.35; }
+.loc-bar-fill.worker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  background: var(--completed);
+  opacity: 0.7;
+}
+.loc-bar-value {
+  width: 80px;
+  text-align: right;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  font-size: 11px;
+}
+.loc-bar-meta {
+  width: 90px;
+  text-align: right;
+  color: var(--text-dim);
+  flex-shrink: 0;
+  font-size: 10px;
+}
+.loc-section.collapsed .loc-body,
+.loc-section.collapsed .loc-agg-toggle { display: none; }
+.loc-section, .loc-section-header, .loc-bar-track {
+  transition: background-color 0.3s, color 0.3s, border-color 0.3s;
+}
+
 /* ── Kanban Pipeline ───────────────────── */
 .pipeline-label {
   font-size: 11px;
@@ -1024,6 +1150,10 @@ tr:hover td { background: var(--bg-hover); }
   .pipeline-col { min-width: unset; width: 100%; }
   .charts-grid, .charts-grid-2x2 { grid-template-columns: 1fr; }
   .chart-card-wide { grid-column: span 1; }
+  .loc-bar-name { width: 80px; font-size: 11px; }
+  .loc-bar-meta { display: none; }
+  .loc-agg-btn { min-height: 44px; padding: 8px 14px; font-size: 12px; display: inline-flex; align-items: center; }
+  .loc-section-header { min-height: 48px; padding: 12px 14px; }
   .section-box-body table { font-size: 11px; }
   .section-box-body td, .section-box-body th { padding: 6px 8px; }
   .section-box-body { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -1173,6 +1303,32 @@ tr:hover td { background: var(--bg-hover); }
         <span class="history-card-total" id="hist-month">--</span>
       </div>
       <div class="history-breakdown" id="hist-month-breakdown"></div>
+    </div>
+  </div>
+
+  <!-- LOC Tracking -->
+  <div class="loc-section collapsed" id="loc-section">
+    <div class="loc-section-header" onclick="toggleSection('loc-section')">
+      <div>
+        <span class="section-label">Lines of Code</span>
+        <span class="badge-count" id="loc-total-badge">--</span>
+      </div>
+      <span class="toggle" id="loc-section-toggle">[show]</span>
+    </div>
+    <div class="loc-agg-toggle">
+      <button class="loc-agg-btn active" data-period="month" onclick="setLocPeriod('month')">Month</button>
+      <button class="loc-agg-btn" data-period="week" onclick="setLocPeriod('week')">Week</button>
+      <button class="loc-agg-btn" data-period="today" onclick="setLocPeriod('today')">Today</button>
+    </div>
+    <div class="loc-body">
+      <div class="loc-summary" id="loc-summary">
+        <span class="loc-stat loc-added">+-- added</span>
+        <span class="loc-stat loc-removed">--- removed</span>
+        <span class="loc-stat loc-net">= -- net</span>
+      </div>
+      <div class="loc-bar-list" id="loc-bars">
+        <div style="color:var(--text-dim);font-size:12px;padding:8px 0">Loading...</div>
+      </div>
     </div>
   </div>
 
@@ -2027,6 +2183,88 @@ async function submitEvent() {
   }
 }
 
+// ── LOC Tracking ───────────────────────────
+
+let locPeriod = 'month';
+let locHistoryData = null;
+let locProjectsData = null;
+
+function setLocPeriod(period) {
+  locPeriod = period;
+  document.querySelectorAll('.loc-agg-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.period === period);
+  });
+  renderLocSection();
+}
+
+function renderLocSection() {
+  var summaryEl = document.getElementById('loc-summary');
+  var barsEl = document.getElementById('loc-bars');
+  var badgeEl = document.getElementById('loc-total-badge');
+
+  // Render worker LOC summary from loc history
+  if (locHistoryData) {
+    var period = locHistoryData[locPeriod] || {};
+    var added = period.added || 0;
+    var removed = period.removed || 0;
+    var net = period.net || 0;
+    summaryEl.innerHTML =
+      '<span class="loc-stat loc-added">+' + added.toLocaleString() + ' added</span>' +
+      '<span class="loc-stat loc-removed">-' + removed.toLocaleString() + ' removed</span>' +
+      '<span class="loc-stat loc-net">= ' + (net >= 0 ? '+' : '') + net.toLocaleString() + ' net</span>';
+  }
+
+  // Render project bars
+  if (locProjectsData && locProjectsData.length > 0) {
+    var maxLoc = Math.max.apply(null, locProjectsData.map(function(p) { return p.code_lines || 1; }));
+    var totalLoc = locProjectsData.reduce(function(s, p) { return s + (p.code_lines || 0); }, 0);
+    badgeEl.textContent = (totalLoc / 1000).toFixed(1) + 'k';
+
+    var html = '';
+    for (var i = 0; i < locProjectsData.length; i++) {
+      var p = locProjectsData[i];
+      if (p.code_lines === 0 && p.worker_net === 0) continue;
+      var pct = Math.max(Math.round((p.code_lines / maxLoc) * 100), 1);
+      var workerPct = p.code_lines > 0 ? Math.round((Math.abs(p.worker_net) / p.code_lines) * 100) : 0;
+      var projColor = PROJECT_COLORS[Math.abs(hashCode(p.name)) % PROJECT_COLORS.length];
+
+      html += '<div class="loc-bar-row">';
+      html += '<span class="loc-bar-name">' + esc(p.name) + '</span>';
+      html += '<div class="loc-bar-track">';
+      html += '<div class="loc-bar-fill total" style="width:' + pct + '%;background:' + projColor + ';opacity:0.35"></div>';
+      if (workerPct > 0) {
+        html += '<div class="loc-bar-fill worker" style="width:' + Math.min(workerPct, pct) + '%"></div>';
+      }
+      html += '</div>';
+      html += '<span class="loc-bar-value">' + (p.code_lines / 1000).toFixed(1) + 'k LOC</span>';
+      html += '<span class="loc-bar-meta">' + p.code_files + ' files';
+      if (p.worker_net > 0) {
+        html += ' <span style="color:var(--completed)">+' + p.worker_net + '</span>';
+      }
+      html += '</span>';
+      html += '</div>';
+    }
+    barsEl.innerHTML = html;
+  } else if (locProjectsData) {
+    barsEl.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:8px 0">No project data</div>';
+    badgeEl.textContent = '0';
+  }
+}
+
+async function refreshLoc() {
+  try {
+    var results = await Promise.all([
+      api('/api/stats/loc-history'),
+      api('/api/stats/projects-loc'),
+    ]);
+    locHistoryData = results[0];
+    locProjectsData = results[1];
+    renderLocSection();
+  } catch (e) {
+    console.error('LOC refresh failed:', e);
+  }
+}
+
 // ── Charts ─────────────────────────────────
 
 const STATUS_COLORS = {
@@ -2499,9 +2737,11 @@ async function refresh() {
 refresh();
 refreshStats();
 refreshCharts();
+refreshLoc();
 setInterval(refresh, REFRESH);
 setInterval(refreshStats, REFRESH);
 setInterval(refreshCharts, 60000);
+setInterval(refreshLoc, 120000);  // LOC is expensive — refresh every 2 min
 setInterval(updateTimestamp, 1000);
 
 // Auto-collapse completed/failed columns on mobile
