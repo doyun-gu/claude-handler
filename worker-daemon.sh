@@ -1430,6 +1430,7 @@ Push and update the PR when done."
         # Async notifications
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-complete "$task_id" 2>/dev/null &
         "$HOME/Developer/claude-handler/memory-sync.sh" sync 2>/dev/null &
+        "$HOME/Developer/claude-handler/fleet-backup.sh" 2>/dev/null &
 
         # Auto-merge safe PRs
         local auto_merged=false
@@ -1493,6 +1494,7 @@ REVIEW_EOF
 
         "$HOME/Developer/claude-handler/fleet-notify.sh" --task-failed "$task_id" 2>/dev/null &
         "$HOME/Developer/claude-handler/memory-sync.sh" sync 2>/dev/null &
+        "$HOME/Developer/claude-handler/fleet-backup.sh" 2>/dev/null &
 
         cat > "$REVIEW_DIR/${task_id}-failed.md" << REVIEW_EOF
 ---
