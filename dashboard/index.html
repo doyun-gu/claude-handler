@@ -1131,6 +1131,230 @@ tr:hover td { background: var(--bg-hover); }
   transition: background-color 0.3s, color 0.3s, border-color 0.3s;
 }
 
+/* ── Machine Cards ────────────────────── */
+.machines-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.machines-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.machine-cards {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.machine-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  transition: background-color 0.3s, border-color 0.3s;
+}
+.machine-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.machine-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-white);
+}
+.machine-card-chip {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.machine-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.machine-status-badge.online {
+  background: var(--completed-bg);
+  color: var(--completed);
+  border: 1px solid rgba(34,197,94,0.4);
+}
+.machine-status-badge.offline {
+  background: var(--failed-bg);
+  color: var(--failed);
+  border: 1px solid rgba(239,68,68,0.4);
+}
+.machine-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.machine-status-badge.online .machine-status-dot {
+  animation: pulse 2s infinite;
+}
+.machine-card-role {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.machine-card-stats {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.machine-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+.machine-stat-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.machine-stat-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-white);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.machine-bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 2px;
+}
+.machine-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.5s ease;
+}
+.machine-bar-fill.cpu { background: var(--running); }
+.machine-bar-fill.ram { background: #F59E0B; }
+.machine-card-task {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: var(--running-bg);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: var(--radius-sm);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+  font-size: 11px;
+}
+.machine-card-task-label {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 3px;
+}
+.machine-card-task-name {
+  color: var(--running);
+  font-weight: 500;
+}
+.machine-card-task-time {
+  color: var(--text-dim);
+  font-size: 10px;
+  margin-top: 2px;
+}
+.machine-card-idle {
+  margin-top: 10px;
+  padding: 6px 10px;
+  color: var(--text-dim);
+  font-size: 11px;
+  font-style: italic;
+}
+.machine-card-completed {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: "SF Mono", "Fira Code", "JetBrains Mono", monospace;
+}
+.machine-card-completed .count {
+  color: var(--completed);
+  font-weight: 600;
+}
+.machine-last-checked {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* ── Flow Diagram ─────────────────────── */
+.flow-diagram {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 12px 0;
+}
+.flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 130px;
+  transition: border-color 0.3s, background-color 0.3s;
+}
+.flow-node.active {
+  border-color: rgba(59, 130, 246, 0.5);
+  background: var(--running-bg);
+}
+.flow-node-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-white);
+}
+.flow-node-role {
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.flow-node-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-top: 2px;
+}
+.flow-node-dot.online { background: var(--completed); }
+.flow-node-dot.offline { background: var(--failed); }
+.flow-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--text-dim);
+  font-size: 18px;
+  line-height: 1;
+}
+.flow-arrow.active {
+  color: var(--running);
+}
+.flow-arrow-label {
+  font-size: 9px;
+  color: var(--text-dim);
+  text-align: center;
+  white-space: nowrap;
+}
+
 /* ── Mobile Responsive ────────────────── */
 @media (max-width: 768px) {
   body { font-size: 12px; }
@@ -1139,6 +1363,9 @@ tr:hover td { background: var(--bg-hover); }
   .topbar-left { gap: 8px; }
   .topbar-right { gap: 6px; }
   .topbar-stats { display: none; }
+  .machine-cards { grid-template-columns: 1fr; }
+  .flow-diagram { flex-wrap: wrap; gap: 8px; }
+  .flow-node { min-width: 100px; padding: 8px 14px; }
   .stat-cards { grid-template-columns: repeat(2, 1fr); gap: 8px; }
   .stat-card { padding: 12px; }
   .stat-card-value { font-size: 22px; }
@@ -1255,6 +1482,13 @@ tr:hover td { background: var(--bg-hover); }
   <div class="events-bar" id="events-bar" style="display:none">
     <span id="events-chips"></span>
     <button class="btn" onclick="openEventModal()" style="font-size:11px; padding:2px 8px">+ Event</button>
+  </div>
+
+  <!-- Fleet Machines -->
+  <div class="machines-section" id="machines-section">
+    <div class="machines-label">Fleet Machines</div>
+    <div class="flow-diagram" id="flow-diagram"></div>
+    <div class="machine-cards" id="machine-cards"></div>
   </div>
 
   <!-- Analytics Stat Cards -->
@@ -2662,6 +2896,158 @@ function renderCostsChart(data) {
   });
 }
 
+// ── Machine Cards & Flow Diagram ────────
+
+function renderFlowDiagram(machines) {
+  var el = document.getElementById('flow-diagram');
+  if (!el) return;
+
+  var macMiniOnline = false;
+  var dellOnline = false;
+  var macMiniRunning = false;
+  var dellRunning = false;
+  for (var i = 0; i < machines.length; i++) {
+    if (machines[i].id === 'mac-mini') {
+      macMiniOnline = machines[i].online;
+      macMiniRunning = !!machines[i].current_task;
+    }
+    if (machines[i].id === 'dell-xps') {
+      dellOnline = machines[i].online;
+      dellRunning = !!machines[i].current_task;
+    }
+  }
+
+  var anyRunning = macMiniRunning || dellRunning;
+
+  var html = '';
+  // MacBook Pro (Commander)
+  html += '<div class="flow-node">';
+  html += '<span class="flow-node-name">MacBook Pro</span>';
+  html += '<span class="flow-node-role">Commander</span>';
+  html += '<span class="flow-node-dot online"></span>';
+  html += '</div>';
+
+  // Arrow: Commander -> Mac Mini
+  html += '<div class="flow-arrow' + (anyRunning ? ' active' : '') + '">';
+  html += '<span>\u2192</span>';
+  html += '<span class="flow-arrow-label">dispatch</span>';
+  html += '</div>';
+
+  // Mac Mini
+  html += '<div class="flow-node' + (macMiniRunning ? ' active' : '') + '">';
+  html += '<span class="flow-node-name">Mac Mini</span>';
+  html += '<span class="flow-node-role">Controller + Worker 1</span>';
+  html += '<span class="flow-node-dot ' + (macMiniOnline ? 'online' : 'offline') + '"></span>';
+  html += '</div>';
+
+  // Arrow: Mac Mini -> Dell XPS
+  html += '<div class="flow-arrow' + (dellRunning ? ' active' : '') + '">';
+  html += '<span>\u2192</span>';
+  html += '<span class="flow-arrow-label">route</span>';
+  html += '</div>';
+
+  // Dell XPS
+  html += '<div class="flow-node' + (dellRunning ? ' active' : '') + '">';
+  html += '<span class="flow-node-name">Dell XPS</span>';
+  html += '<span class="flow-node-role">Worker 2</span>';
+  html += '<span class="flow-node-dot ' + (dellOnline ? 'online' : 'offline') + '"></span>';
+  html += '</div>';
+
+  el.innerHTML = html;
+}
+
+function renderMachineCards(machines) {
+  var el = document.getElementById('machine-cards');
+  if (!el) return;
+
+  var html = '';
+  for (var i = 0; i < machines.length; i++) {
+    var m = machines[i];
+    var statusClass = m.online ? 'online' : 'offline';
+    var statusText = m.online ? 'Online' : 'Offline';
+
+    html += '<div class="machine-card">';
+
+    // Header: name + status badge
+    html += '<div class="machine-card-header">';
+    html += '<div>';
+    html += '<div class="machine-card-name">' + esc(m.name) + '</div>';
+    html += '<div class="machine-card-chip">' + esc(m.chip) + ' \u00b7 ' + esc(m.os) + '</div>';
+    html += '</div>';
+    html += '<span class="machine-status-badge ' + statusClass + '">';
+    html += '<span class="machine-status-dot"></span>' + statusText;
+    html += '</span>';
+    html += '</div>';
+
+    // Role
+    html += '<div class="machine-card-role">' + esc(m.role) + '</div>';
+
+    // Stats bars (only for local/online machines with data)
+    if (m.cpu_percent != null && m.ram_percent != null) {
+      html += '<div class="machine-card-stats">';
+
+      // CPU
+      html += '<div class="machine-stat">';
+      html += '<span class="machine-stat-label">CPU</span>';
+      html += '<span class="machine-stat-value">' + m.cpu_percent + '%</span>';
+      html += '<div class="machine-bar"><div class="machine-bar-fill cpu" style="width:' + m.cpu_percent + '%"></div></div>';
+      html += '</div>';
+
+      // RAM
+      html += '<div class="machine-stat">';
+      html += '<span class="machine-stat-label">RAM</span>';
+      html += '<span class="machine-stat-value">' + m.ram_used_gb + '/' + m.ram_total_gb + ' GB</span>';
+      html += '<div class="machine-bar"><div class="machine-bar-fill ram" style="width:' + m.ram_percent + '%"></div></div>';
+      html += '</div>';
+
+      // Uptime
+      html += '<div class="machine-stat">';
+      html += '<span class="machine-stat-label">Uptime</span>';
+      html += '<span class="machine-stat-value">' + esc(m.uptime || '--') + '</span>';
+      html += '</div>';
+
+      html += '</div>';
+    }
+
+    // Current task
+    if (m.current_task) {
+      var taskSlug = shortSlug(m.current_task.slug || '');
+      var elapsed = m.current_task.started_at ? duration(m.current_task.started_at) : '--';
+      html += '<div class="machine-card-task">';
+      html += '<div class="machine-card-task-label">Running</div>';
+      html += '<div class="machine-card-task-name">' + esc(taskSlug) + '</div>';
+      html += '<div class="machine-card-task-time">' + elapsed + ' elapsed</div>';
+      html += '</div>';
+    } else if (m.online) {
+      html += '<div class="machine-card-idle">Idle \u2014 no active tasks</div>';
+    }
+
+    // Completed today
+    html += '<div class="machine-card-completed">';
+    html += 'Completed today: <span class="count">' + (m.completed_today || 0) + '</span>';
+    html += '</div>';
+
+    // Last checked (for remote machines)
+    if (!m.local && m.last_checked) {
+      html += '<div class="machine-last-checked">Last checked: ' + timeAgo(m.last_checked) + '</div>';
+    }
+
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+}
+
+async function refreshMachines() {
+  try {
+    var machines = await api('/api/machines');
+    renderFlowDiagram(machines);
+    renderMachineCards(machines);
+  } catch (e) {
+    console.error('Machines failed:', e);
+  }
+}
+
 async function refreshCharts() {
   try {
     const [cumulative, throughput, recent, queue, costs] = await Promise.all([
@@ -2738,10 +3124,12 @@ refresh();
 refreshStats();
 refreshCharts();
 refreshLoc();
+refreshMachines();
 setInterval(refresh, REFRESH);
 setInterval(refreshStats, REFRESH);
 setInterval(refreshCharts, 60000);
-setInterval(refreshLoc, 120000);  // LOC is expensive — refresh every 2 min
+setInterval(refreshLoc, 120000);  // LOC is expensive
+setInterval(refreshMachines, REFRESH);
 setInterval(updateTimestamp, 1000);
 
 // Auto-collapse completed/failed columns on mobile
