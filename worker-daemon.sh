@@ -851,6 +851,16 @@ run_task_remote() {
 
     local task_started_at
     task_started_at=$(date +%s)
+    # Stamp which machine is running this task
+    python3 -c "
+import json
+f = '$task_file'
+try:
+    d = json.loads(open(f).read())
+    d['route'] = '$worker_ssh'
+    open(f, 'w').write(json.dumps(d, indent=2))
+except: pass
+" 2>/dev/null
     update_task_status "$task_file" "running"
     write_task_status "$task_id" "running" "Running on $worker_ssh" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
 
@@ -1091,6 +1101,16 @@ run_task() {
 
     local task_started_at
     task_started_at=$(date +%s)
+    # Stamp which machine is running this task
+    python3 -c "
+import json
+f = '$task_file'
+try:
+    d = json.loads(open(f).read())
+    d['route'] = '${MACHINE_NAME:-$(hostname -s)}'
+    open(f, 'w').write(json.dumps(d, indent=2))
+except: pass
+" 2>/dev/null
     update_task_status "$task_file" "running"
     write_task_status "$task_id" "starting" "Preparing git and environment" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
 

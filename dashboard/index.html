@@ -1069,6 +1069,14 @@ tr:hover td { background: var(--bg-hover); }
   color: var(--text-dim);
 }
 .tq-card-meta span { white-space: nowrap; }
+.tq-card-machine {
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 500;
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+}
 .tq-card-progress { margin-top: 6px; }
 .tq-card-progress .timer-bar {
   height: 4px;
@@ -1978,8 +1986,13 @@ function renderTaskQueue(tasks) {
       html += '<span class="tq-card-project" style="background:' + projColor + '22;color:' + projColor + '">' + esc(project) + '</span>';
       html += '</div>';
 
-      // Meta: dispatched time + elapsed/duration
+      // Meta: dispatched time + elapsed/duration + machine
       html += '<div class="tq-card-meta">';
+      if (t.route) {
+        var machineNames = {'mac-mini':'Mac Mini','dell-xps':'Dell XPS','macbook-pro':'MacBook Pro'};
+        var mLabel = machineNames[t.route] || t.route;
+        html += '<span class="tq-card-machine">' + esc(mLabel) + '</span>';
+      }
       if (t.dispatched_at) {
         html += '<span>' + timeAgo(t.dispatched_at) + '</span>';
       }
@@ -2176,11 +2189,14 @@ function renderCompleted(tasks) {
     return;
   }
 
-  let html = '<table><thead><tr><th>Task</th><th>Project</th><th>Status</th><th>Duration</th><th>Finished</th></tr></thead><tbody>';
+  let html = '<table><thead><tr><th>Task</th><th>Project</th><th>Machine</th><th>Status</th><th>Duration</th><th>Finished</th></tr></thead><tbody>';
   for (const t of recent) {
+    var machineNames = {'mac-mini':'Mac Mini','dell-xps':'Dell XPS','macbook-pro':'MacBook Pro'};
+    var mLabel = t.route ? (machineNames[t.route] || t.route) : '--';
     html += '<tr>';
     html += '<td><span class="task-slug">' + esc(shortSlug(t.id || t.slug)) + '</span></td>';
     html += '<td>' + esc(t.project_name || '--') + '</td>';
+    html += '<td>' + (t.route ? '<span class="tq-card-machine">' + esc(mLabel) + '</span>' : '--') + '</td>';
     html += '<td>' + badge(t.status) + '</td>';
     html += '<td>' + duration(t.started_at, t.finished_at) + '</td>';
     html += '<td>' + timeAgo(t.finished_at || t.merged_at) + '</td>';

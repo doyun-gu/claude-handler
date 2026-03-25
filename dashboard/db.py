@@ -62,7 +62,8 @@ def _init_schema(conn: sqlite3.Connection) -> None:
             error_message TEXT,
             loc_added INTEGER DEFAULT 0,
             loc_removed INTEGER DEFAULT 0,
-            raw_json TEXT
+            raw_json TEXT,
+            route TEXT DEFAULT ''
         );
 
         CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
@@ -139,6 +140,8 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE tasks ADD COLUMN loc_added INTEGER DEFAULT 0")
     if "loc_removed" not in columns:
         conn.execute("ALTER TABLE tasks ADD COLUMN loc_removed INTEGER DEFAULT 0")
+    if "route" not in columns:
+        conn.execute("ALTER TABLE tasks ADD COLUMN route TEXT DEFAULT ''")
     conn.commit()
 
 
@@ -163,8 +166,8 @@ def migrate_tasks() -> int:
                     subdir, dispatched_at, started_at, finished_at, merged_at,
                     status, base_branch, prompt, prompt_file, budget_usd,
                     permission_mode, tmux_session, pr_url, merged_into,
-                    error_message, loc_added, loc_removed, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    error_message, loc_added, loc_removed, raw_json, route)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(id) DO UPDATE SET
                     status=excluded.status,
                     started_at=excluded.started_at,
@@ -174,7 +177,8 @@ def migrate_tasks() -> int:
                     error_message=excluded.error_message,
                     loc_added=excluded.loc_added,
                     loc_removed=excluded.loc_removed,
-                    raw_json=excluded.raw_json
+                    raw_json=excluded.raw_json,
+                    route=CASE WHEN excluded.route != '' THEN excluded.route ELSE tasks.route END
             """, (
                 task_id,
                 data.get("slug", ""),
@@ -199,6 +203,7 @@ def migrate_tasks() -> int:
                 data.get("loc_added", 0) or 0,
                 data.get("loc_removed", 0) or 0,
                 json.dumps(data),
+                data.get("route", ""),
             ))
             count += 1
         except (json.JSONDecodeError, OSError):
@@ -358,12 +363,15 @@ def get_all_tasks() -> list[dict]:
     """Get all tasks, newest first."""
     conn = get_conn()
     rows = conn.execute(
-        "SELECT raw_json FROM tasks ORDER BY id DESC"
+        "SELECT raw_json, route FROM tasks ORDER BY id DESC"
     ).fetchall()
     result = []
     for row in rows:
         try:
-            result.append(json.loads(row["raw_json"]))
+            task = json.loads(row["raw_json"])
+            if not task.get("route") and row["route"]:
+                task["route"] = row["route"]
+            result.append(task)
         except (json.JSONDecodeError, TypeError):
             pass
     return result
@@ -406,6 +414,7 @@ def update_task(task_id: str, updates: dict) -> bool:
     known_cols = {
         "status", "started_at", "finished_at", "merged_at",
         "pr_url", "error_message", "branch", "loc_added", "loc_removed",
+        "route",
     }
     sets = []
     params = []
