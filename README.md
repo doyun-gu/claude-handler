@@ -333,6 +333,56 @@ Host worker
 
 The Worker picks it up, runs Claude autonomously, opens a PR, and notifies you by email.
 
+### Adding a WSL2 Worker (Windows PC)
+
+If you have a Windows machine with WSL2, you can add it as an additional worker.
+
+**Step 1: Manual auth (you, 5 min)** -- these require interactive login:
+
+```bash
+# In WSL2 Ubuntu
+
+# Install + authenticate GitHub CLI
+sudo apt install gh -y
+gh auth login
+
+# SSH key for GitHub
+ssh-keygen -t ed25519 -C "dell-xps-worker"
+gh ssh-key add ~/.ssh/id_ed25519.pub --title "dell-xps-worker"
+
+# Install + connect Tailscale (for cross-machine SSH)
+curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscaled &
+sudo tailscale up --hostname=dell-xps
+```
+
+**Step 2: Run setup script (automated, 2 min):**
+
+```bash
+git clone git@github.com:doyun-gu/claude-handler.git ~/Developer/claude-handler
+cd ~/Developer/claude-handler
+./setup-xps.sh
+```
+
+This installs everything: system packages, fleet directories, all project repos, Python venv, Claude config, WSL settings, task DB, and runs verification.
+
+**Step 3: Connect from Controller (Mac Mini):**
+
+```bash
+# Add to ~/.ssh/config on the controller machine
+cat >> ~/.ssh/config << 'EOF'
+Host dell-xps
+    HostName dell-xps
+    User doyungu
+    IdentityFile ~/.ssh/id_ed25519
+EOF
+
+# Verify
+ssh dell-xps "claude --version"
+```
+
+See [docs/DELL-XPS-WORKER-SETUP.md](docs/DELL-XPS-WORKER-SETUP.md) for the full guide with WSL2 power settings, auto-start on boot, and task routing strategy.
+
 ## Setup Flow
 
 ```
