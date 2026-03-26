@@ -18,6 +18,10 @@ A framework that turns [Claude Code](https://docs.anthropic.com/en/docs/claude-c
 | **Process supervision** | LaunchAgent keeps services alive across reboots |
 | **Health checking** | Auto-detects crashes, scans logs, creates bug database, auto-heals known issues |
 | **Email notifications** | Gmail alerts for task completion/failure with reply-to-action |
+| **Evaluator harness** | Planner-Generator-Evaluator pipeline validates Worker output before PR |
+| **Conflict prevention** | 3-layer merge conflict prevention (file-level locks, sequential merge, auto-rebase) |
+| **Multi-worker support** | Route tasks to Mac Mini, Dell XPS, or any Tailscale-connected machine |
+| **Fleet dashboard** | Real-time web UI at :3003 showing task status, worker health, LOC tracking |
 | **Notion integration** | 10 slash commands for documentation management |
 
 ## Architecture
@@ -197,18 +201,24 @@ During a freeze, the daemon skips queued tasks for that project. Tasks for other
 
 Each task is a JSON file in `~/.claude-fleet/tasks/`:
 
+Each task has two files: a JSON manifest and a `.prompt` file with the full instructions.
+
 ```json
 {
-  "id": "20260320-154351-unified-editor-ai-panel",
-  "slug": "unified-editor-ai-panel",
-  "branch": "worker/unified-editor-ai-panel-20260320",
-  "project_name": "DPSpice-com",
+  "id": "20260326-150000-engine-phase2a-perf",
+  "slug": "engine-phase2a-perf",
+  "branch": "worker/engine-phase2a-perf-20260326",
+  "project_name": "my-project",
   "project_path": "/Users/you/Developer/my-project",
   "status": "queued",
-  "prompt": "Implement feature X...",
-  "budget_usd": 20,
+  "base_branch": "main",
+  "prompt_file": "20260326-150000-engine-phase2a-perf.prompt",
+  "budget_usd": 10,
+  "max_turns": 200,
   "permission_mode": "dangerously-skip-permissions",
-  "dispatched_at": "2026-03-20T15:43:51Z"
+  "priority": 80,
+  "depends_on": [],
+  "dispatched_at": "2026-03-26T15:00:00Z"
 }
 ```
 
@@ -385,23 +395,24 @@ See [docs/DELL-XPS-WORKER-SETUP.md](docs/DELL-XPS-WORKER-SETUP.md) for the full 
 
 ## Setup Flow
 
-```
-                              clone repo
-                                  │
-                            ./install.sh
-                                  │
-                        ┌─────────┴─────────┐
-                        │                     │
-                   Commander              Worker
-                        │                     │
-                  Claude Code           LaunchAgent
-                  /cofounder            fleet-supervisor
-                  /dispatch ──────────► worker-daemon
-                  /worker-review ◄──── health-checker
-                        │             fleet-dashboard
-                     SSH setup
-                        │
-                   Ready to go
+```mermaid
+flowchart TB
+    Clone["git clone claude-handler"] --> Install["./install.sh"]
+    Install --> Role{Choose role}
+    Role --> CMD["Commander (Laptop)"]
+    Role --> WRK["Worker (Server)"]
+    CMD --> CC["Claude Code active"]
+    CMD --> Cofounder["/cofounder personalisation"]
+    CMD --> SSH["SSH setup to Worker"]
+    WRK --> LA["LaunchAgent installed"]
+    WRK --> Supervisor["fleet-supervisor running"]
+    WRK --> Daemon["worker-daemon listening"]
+    SSH --> Ready["Ready to /dispatch"]
+    Daemon --> Ready
+
+    style CMD fill:#f0f9ff,stroke:#3b82f6
+    style WRK fill:#f0fdf4,stroke:#22c55e
+    style Ready fill:#fef3c7,stroke:#f59e0b
 ```
 
 ## Commands
