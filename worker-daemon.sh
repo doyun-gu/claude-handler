@@ -30,6 +30,13 @@ DAEMON_START=$(date +%s)
 CYCLE_COUNT=0
 LAST_ERROR=""
 TASK_TIMEOUT=7200  # 2 hours in seconds
+DAEMON_STATE_FILE="$FLEET_DIR/daemon-state.json"
+MEMORY_WARN_MB=2048   # Warn when Claude RSS exceeds 2GB
+MEMORY_KILL_MB=4096   # Kill when Claude RSS exceeds 4GB
+LOG_MAX_BYTES=10485760   # 10MB — truncate logs larger than this
+LOG_KEEP_BYTES=5242880   # 5MB — keep this much after truncation
+LOG_RETENTION_DAYS=7     # Compress logs older than this
+LAST_DAILY_CLEANUP=0     # Epoch of last daily log cleanup
 
 # ─── Colors & logging ────────────────────────────────────────────────────────
 
@@ -197,6 +204,7 @@ task_field() {
 }
 
 TASK_DB="$SCRIPT_DIR/task-db.py"
+FILE_LOCK="$SCRIPT_DIR/file-lock.py"
 
 count_tasks() {
     # Primary: SQLite
@@ -352,6 +360,90 @@ reset_crash_counter_if_stable() {
     fi
 }
 
+# ─── Daemon state snapshots (crash recovery) ────────────────────────────────
+# Every 60s, the heartbeat monitor saves a snapshot of the running task.
+# On startup, if a state file exists but the PID is dead, the task is marked failed.
+
+write_daemon_state() {
+    local task_id="$1" pid="$2" branch="$3" log_file="$4"
+    local now log_size
+    now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    log_size=0
+    [[ -f "$log_file" ]] && log_size=$(wc -c < "$log_file" 2>/dev/null || echo 0)
+    # Atomic write: write to .tmp then mv
+    cat > "${DAEMON_STATE_FILE}.tmp" << STATE_EOF
+{"task_id":"${task_id}","pid":${pid},"started_at":"${now}","log_size":${log_size},"branch":"${branch}"}
+STATE_EOF
+    mv -f "${DAEMON_STATE_FILE}.tmp" "$DAEMON_STATE_FILE"
+}
+
+clear_daemon_state() {
+    rm -f "$DAEMON_STATE_FILE" "${DAEMON_STATE_FILE}.tmp"
+}
+
+recover_daemon_state() {
+    [[ -f "$DAEMON_STATE_FILE" ]] || return 0
+
+    local state_json task_id pid branch
+    state_json=$(cat "$DAEMON_STATE_FILE" 2>/dev/null) || { rm -f "$DAEMON_STATE_FILE"; return 0; }
+
+    task_id=$(echo "$state_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('task_id',''))" 2>/dev/null) || task_id=""
+    pid=$(echo "$state_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('pid',0))" 2>/dev/null) || pid=0
+    branch=$(echo "$state_json" | python3 -c "import sys,json; print(json.load(sys.stdin).get('branch',''))" 2>/dev/null) || branch=""
+
+    if [[ -z "$task_id" ]]; then
+        warn "[crash-recovery] Invalid daemon-state.json — removing"
+        clear_daemon_state
+        return 0
+    fi
+
+    if [[ "$pid" != "0" ]] && kill -0 "$pid" 2>/dev/null; then
+        # PID is still alive — Claude is still running (daemon restarted but session survived)
+        log "[crash-recovery] Task $task_id (PID $pid) still running — resuming monitoring"
+        return 0
+    fi
+
+    # PID is dead — daemon crashed mid-task
+    log_error "D-090" "Crash recovery: task $task_id was running (PID $pid) but process is dead"
+
+    local task_file="$TASKS_DIR/${task_id}.json"
+    if [[ -f "$task_file" ]]; then
+        local current_status
+        current_status=$(task_field "$task_file" status "")
+        if [[ "$current_status" == "running" ]]; then
+            update_task_status "$task_file" "failed" "error_message=Daemon crash recovery — task was interrupted"
+            write_task_status "$task_id" "failed" "Daemon crash recovery" "unknown" "${branch:-unknown}" "$$" "0"
+
+            cat > "$REVIEW_DIR/${task_id}-failed.md" << CRASH_REVIEW_EOF
+---
+task_id: ${task_id}
+project: unknown
+type: failed
+priority: high
+created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+---
+
+## Task Failed (Daemon Crash Recovery)
+
+**Branch:** ${branch:-unknown}
+**Original PID:** ${pid}
+**Cause:** Daemon or system crashed while task was running.
+
+The task was marked as failed during crash recovery.
+Re-dispatch if needed: the branch may have partial work.
+CRASH_REVIEW_EOF
+
+            warn "[crash-recovery] Marked task $task_id as failed"
+        else
+            log "[crash-recovery] Task $task_id already has status '$current_status' — no action needed"
+        fi
+    else
+        warn "[crash-recovery] Task file not found for $task_id — cannot recover"
+    fi
+
+    clear_daemon_state
+}
+
 # ─── Heartbeat & health ─────────────────────────────────────────────────────
 
 write_heartbeat() {
@@ -420,6 +512,226 @@ STATUS_EOF
 clean_task_status() {
     local task_id="$1"
     rm -f "$TASK_STATUS_DIR/${task_id}.status"
+}
+
+# ─── Memory watchdog ────────────────────────────────────────────────────────
+# Background process that monitors Claude's RSS. Warns at 2GB, kills at 4GB.
+# Runs every 30 seconds while a task is active.
+
+MEMORY_WATCHDOG_PID=0
+
+start_memory_watchdog() {
+    local claude_pid="$1" task_id="$2"
+    (
+        while true; do
+            sleep 30
+            # Check if the monitored process still exists
+            kill -0 "$claude_pid" 2>/dev/null || break
+
+            local rss_kb rss_mb
+            rss_kb=$(ps -o rss= -p "$claude_pid" 2>/dev/null | tr -d ' ') || break
+            [[ -z "$rss_kb" || "$rss_kb" == "0" ]] && break
+            rss_mb=$((rss_kb / 1024))
+
+            if (( rss_mb > MEMORY_KILL_MB )); then
+                echo "[daemon $(date +%H:%M:%S)] KILL: Claude PID $claude_pid using ${rss_mb}MB (>${MEMORY_KILL_MB}MB) — killing (task: $task_id)" >&2
+                echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) [D-091] Memory kill: PID $claude_pid at ${rss_mb}MB (task: $task_id)" >> "$ERROR_LOG"
+                kill -TERM "$claude_pid" 2>/dev/null
+                sleep 3
+                kill -KILL "$claude_pid" 2>/dev/null
+                break
+            elif (( rss_mb > MEMORY_WARN_MB )); then
+                echo "[daemon $(date +%H:%M:%S)] WARN: Claude PID $claude_pid using ${rss_mb}MB (>${MEMORY_WARN_MB}MB) — monitoring (task: $task_id)" >&2
+            fi
+
+            # Log memory usage for diagnostics (in task status file)
+            echo "memory_mb=$rss_mb" >> "$TASK_STATUS_DIR/${task_id}.status" 2>/dev/null
+        done
+    ) &
+    MEMORY_WATCHDOG_PID=$!
+}
+
+stop_memory_watchdog() {
+    if [[ "$MEMORY_WATCHDOG_PID" != "0" ]]; then
+        kill "$MEMORY_WATCHDOG_PID" 2>/dev/null
+        wait "$MEMORY_WATCHDOG_PID" 2>/dev/null
+        MEMORY_WATCHDOG_PID=0
+    fi
+}
+
+# ─── Log ring buffer ────────────────────────────────────────────────────────
+# After each task, truncate oversized logs. Daily: compress old logs.
+
+truncate_log_if_needed() {
+    local log_file="$1"
+    [[ -f "$log_file" ]] || return 0
+
+    local file_size
+    file_size=$(wc -c < "$log_file" 2>/dev/null) || return 0
+
+    if (( file_size > LOG_MAX_BYTES )); then
+        local original_size_mb=$(( file_size / 1048576 ))
+        local keep_mb=$(( LOG_KEEP_BYTES / 1048576 ))
+        log "[log-trim] $log_file is ${original_size_mb}MB — keeping last ${keep_mb}MB"
+
+        # Truncate: keep last LOG_KEEP_BYTES
+        local tmp_file="${log_file}.trim.tmp"
+        echo "[truncated — original size: ${original_size_mb}MB, kept last ${keep_mb}MB]" > "$tmp_file"
+        tail -c "$LOG_KEEP_BYTES" "$log_file" >> "$tmp_file"
+        mv -f "$tmp_file" "$log_file"
+    fi
+}
+
+daily_log_cleanup() {
+    local now
+    now=$(date +%s)
+
+    # Run at most once per day (86400 seconds)
+    if (( now - LAST_DAILY_CLEANUP < 86400 )); then
+        return 0
+    fi
+    LAST_DAILY_CLEANUP=$now
+
+    log "[log-cleanup] Running daily log maintenance"
+
+    # Compress logs older than LOG_RETENTION_DAYS
+    local compressed_count=0
+    local log_file
+    while IFS= read -r log_file; do
+        [[ -f "$log_file" ]] || continue
+        gzip "$log_file" 2>/dev/null && compressed_count=$((compressed_count + 1))
+    done < <(find "$LOGS_DIR" -name "*.log" -mtime +"$LOG_RETENTION_DAYS" -not -name "*.gz" 2>/dev/null)
+
+    if (( compressed_count > 0 )); then
+        log "[log-cleanup] Compressed $compressed_count log(s) older than ${LOG_RETENTION_DAYS} days"
+    fi
+
+    # Report total disk usage
+    local total_usage
+    total_usage=$(du -sh "$LOGS_DIR" 2>/dev/null | awk '{print $1}') || total_usage="unknown"
+    log "[log-cleanup] Total log disk usage: $total_usage"
+}
+
+# ─── Auto-revert on test failure ─────────────────────────────────────────────
+# After Claude finishes, detect and run the project's test suite.
+# If tests fail, stash changes and mark task as failed — no broken PRs.
+
+detect_test_command() {
+    local project_path="$1"
+
+    # Check package.json scripts
+    if [[ -f "$project_path/package.json" ]]; then
+        local has_test
+        has_test=$(python3 -c "
+import json
+d = json.load(open('$project_path/package.json'))
+scripts = d.get('scripts', {})
+if 'test' in scripts and scripts['test'] != 'echo \"Error: no test specified\" && exit 1':
+    print('npm test')
+" 2>/dev/null) || has_test=""
+        [[ -n "$has_test" ]] && { echo "$has_test"; return 0; }
+    fi
+
+    # Check for pytest / python tests
+    if [[ -f "$project_path/pyproject.toml" || -f "$project_path/setup.py" || -f "$project_path/setup.cfg" ]]; then
+        if [[ -d "$project_path/tests" || -d "$project_path/test" ]]; then
+            echo "python3 -m pytest --tb=short -q"
+            return 0
+        fi
+    fi
+
+    # Check Makefile for test target
+    if [[ -f "$project_path/Makefile" ]]; then
+        if grep -q '^test:' "$project_path/Makefile" 2>/dev/null; then
+            echo "make test"
+            return 0
+        fi
+    fi
+
+    # Check Cargo.toml (Rust)
+    if [[ -f "$project_path/Cargo.toml" ]]; then
+        echo "cargo test"
+        return 0
+    fi
+
+    # Check go.mod (Go)
+    if [[ -f "$project_path/go.mod" ]]; then
+        echo "go test ./..."
+        return 0
+    fi
+
+    # No test command detected
+    return 1
+}
+
+run_tests_and_revert_on_failure() {
+    local task_id="$1" task_file="$2" project_path="$3" branch="$4" log_file="$5"
+
+    local test_cmd
+    test_cmd=$(detect_test_command "$project_path") || {
+        log "[auto-revert] No test command detected for $(basename "$project_path") — skipping"
+        return 0  # No tests = pass
+    }
+
+    log "[auto-revert] Running tests: $test_cmd"
+    local test_output test_exit=0
+    local test_output_file="/tmp/fleet-test-${task_id}.out"
+    (cd "$project_path" && eval "$test_cmd" > "$test_output_file" 2>&1) || test_exit=$?
+    test_output=$(cat "$test_output_file" 2>/dev/null)
+    rm -f "$test_output_file"
+
+    if [[ "$test_exit" -ne 0 ]]; then
+        warn "[auto-revert] Tests FAILED (exit $test_exit) for task $task_id"
+
+        # Log the test output
+        {
+            echo ""
+            echo "=== AUTO-REVERT: Test failure output ==="
+            echo "Command: $test_cmd"
+            echo "Exit code: $test_exit"
+            echo "$test_output" | tail -50
+            echo "=== END test output ==="
+        } >> "$log_file"
+
+        # Stash the changes
+        log "[auto-revert] Stashing changes on branch $branch"
+        (cd "$project_path" && git stash --include-untracked 2>/dev/null) || true
+
+        # Mark task as failed
+        update_task_status "$task_file" "failed" "error_message=Tests failed after changes ($test_cmd exited $test_exit)"
+        write_task_status "$task_id" "failed" "Tests failed — changes reverted" "$(basename "$project_path")" "$branch" "$$" "0"
+
+        cat > "$REVIEW_DIR/${task_id}-failed.md" << TEST_FAIL_EOF
+---
+task_id: ${task_id}
+project: $(basename "$project_path")
+type: failed
+priority: high
+created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+---
+
+## Task Failed (Tests Failed — Auto-Reverted)
+
+**Branch:** ${branch}
+**Test command:** \`${test_cmd}\`
+**Exit code:** ${test_exit}
+
+Changes were stashed to prevent a broken PR. The branch may have partial commits.
+
+**Test output (last 50 lines):**
+\`\`\`
+$(echo "$test_output" | tail -50)
+\`\`\`
+
+Re-dispatch with fixes, or review the stashed changes:
+\`cd ${project_path} && git stash pop\`
+TEST_FAIL_EOF
+
+        return 1  # Signal: do NOT create PR
+    fi
+
+    ok "[auto-revert] Tests PASSED for task $task_id"
+    return 0  # Signal: proceed with PR
 }
 
 # ─── Process group management ─────────────────────────────────────────────────
@@ -1396,6 +1708,7 @@ WORKER RULES:
 
     # ─── Heartbeat monitor (background) ───────────────────────
     # Monitors log file growth every 60s. Records heartbeat to SQLite.
+    # Also writes daemon-state.json snapshots for crash recovery.
     # If log stops growing for 10+ minutes, task is flagged as stuck.
     local heartbeat_pid=0
     (
@@ -1414,6 +1727,9 @@ WORKER RULES:
             # Also touch a progress file for simple monitoring
             echo "$cur_size" > "$TASK_STATUS_DIR/${task_id}.progress" 2>/dev/null
 
+            # Write daemon state snapshot for crash recovery
+            write_daemon_state "$task_id" "$$" "$branch" "$log_file"
+
             # Context reset trigger detection
             local elapsed_min=$(( ($(date +%s) - start_epoch) / 60 ))
             local reset_file="$FLEET_DIR/eval/${task_id}.reset-trigger"
@@ -1430,28 +1746,46 @@ WORKER RULES:
     ) &
     heartbeat_pid=$!
 
+    # Write initial daemon state snapshot
+    write_daemon_state "$task_id" "$$" "$branch" "$log_file"
+
     # ─── Run Claude with readable log capture ────────────────
     # Note: setsid is Linux-only (not available on macOS).
     # Note: script -q produces binary typescript on macOS — use tee instead.
+    # We run Claude as a background process to capture its PID for memory monitoring.
     if command -v stdbuf &>/dev/null; then
         stdbuf -oL "$CLAUDE_BIN" -p \
             --permission-mode auto \
             --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
             "$task_prompt" \
-            2>&1 | tee "$log_file" || exit_code=${PIPESTATUS[0]:-$?}
+            > >(tee "$log_file") 2>&1 &
     else
         "$CLAUDE_BIN" -p \
             --permission-mode auto \
             --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
             "$task_prompt" \
-            2>&1 | tee "$log_file" || exit_code=${PIPESTATUS[0]:-$?}
+            > >(tee "$log_file") 2>&1 &
     fi
+    local claude_bg_pid=$!
 
-    # Stop heartbeat monitor
+    # Start memory watchdog on the Claude process
+    start_memory_watchdog "$claude_bg_pid" "$task_id"
+
+    # Wait for Claude to finish and capture exit code
+    wait "$claude_bg_pid" 2>/dev/null || exit_code=$?
+
+    # Stop memory watchdog and heartbeat monitor
+    stop_memory_watchdog
     kill "$heartbeat_pid" 2>/dev/null
     wait "$heartbeat_pid" 2>/dev/null
+
+    # Clear daemon state — task execution phase is done
+    clear_daemon_state
+
+    # Truncate log if oversized
+    truncate_log_if_needed "$log_file"
 
     # ─── Context reset: continue in fresh session if handoff exists ────
     local reset_trigger="$FLEET_DIR/eval/${task_id}.reset-trigger"
@@ -1525,6 +1859,14 @@ All work continues on branch ${branch}. Push and open/update PR when done."
     # Handle result
     if [[ $exit_code -eq 0 ]]; then
         ok "Task $task_id completed successfully (generator done)"
+
+        # ─── Auto-revert on test failure (pre-PR gate) ─────────
+        write_task_status "$task_id" "testing" "Running project tests" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+        if ! run_tests_and_revert_on_failure "$task_id" "$task_file" "$project_path" "$branch" "$log_file"; then
+            # Tests failed — task already marked as failed, skip PR creation
+            release_file_locks "$task_id"
+            return 1
+        fi
 
         # ─── Rebase before PR (Layer 2) ──────────────────────
         local rebase_note=""
@@ -1804,6 +2146,7 @@ TASKEOF
 
 # Crash detection on startup
 detect_crash_restart
+recover_daemon_state
 
 log "Worker daemon started (PARALLEL MODE)"
 log "  Poll interval: ${POLL_INTERVAL}s"
@@ -1812,6 +2155,9 @@ log "  Tasks dir:     $TASKS_DIR"
 log "  Review queue:  $REVIEW_DIR"
 log "  Max parallel:  $MAX_PARALLEL"
 log "  Strategy:      1 task per project, up to $MAX_PARALLEL parallel"
+log "  Memory limit:  warn=${MEMORY_WARN_MB}MB kill=${MEMORY_KILL_MB}MB"
+log "  Log cap:       max=${LOG_MAX_BYTES} keep=${LOG_KEEP_BYTES} retention=${LOG_RETENTION_DAYS}d"
+log "  Crash recovery: daemon-state.json + auto-revert on test failure"
 echo ""
 
 # Loop variables (declared outside loop — `local` only works in functions)
@@ -1932,6 +2278,9 @@ json.dump(d, open(sys.argv[1], 'w'), indent=2)
 
     # Reset crash counter after 10 min of stable operation
     reset_crash_counter_if_stable
+
+    # Daily log cleanup (compress old logs, report disk usage)
+    daily_log_cleanup
 
     if (( running > 0 )); then
         sleep 10
