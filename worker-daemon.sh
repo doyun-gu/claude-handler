@@ -1052,6 +1052,138 @@ REVIEW_EOF
     fi
 }
 
+# ─── File lock helpers ──────────────────────────────────────────────────────
+# Layer 1: Prevent overlapping file edits between parallel tasks.
+# file-lock.py is a standalone CLI — called via subprocess.
+# All calls are safe if file-lock.py is missing (backward compatible).
+
+acquire_file_locks() {
+    local task_id="$1" project="$2" project_path="$3" prompt="$4"
+    [[ -f "$FILE_LOCK" ]] || return 0
+
+    # Estimate which paths this task will touch
+    local paths
+    paths=$(python3 "$FILE_LOCK" estimate "$project_path" "$prompt" 2>/dev/null) || return 0
+    [[ -z "$paths" ]] && return 0
+
+    # Check for conflicts with running tasks
+    local conflict_rc=1
+    # shellcheck disable=SC2086
+    echo "$paths" | xargs python3 "$FILE_LOCK" check "$project" >/dev/null 2>&1 || conflict_rc=$?
+    if [[ $conflict_rc -eq 0 ]]; then
+        local conflicts
+        conflicts=$(echo "$paths" | xargs python3 "$FILE_LOCK" check "$project" 2>/dev/null)
+        warn "[file-lock] Conflict detected for $task_id:"
+        echo "$conflicts" | while IFS= read -r line; do warn "  $line"; done
+        return 1  # signal conflict
+    fi
+
+    # Acquire locks
+    # shellcheck disable=SC2086
+    echo "$paths" | xargs python3 "$FILE_LOCK" acquire "$task_id" "$project" 2>/dev/null
+    local rc=$?
+    if [[ $rc -eq 0 ]]; then
+        local count
+        count=$(echo "$paths" | wc -l | tr -d ' ')
+        log "[file-lock] Acquired $count lock(s) for $task_id"
+    fi
+    return 0
+}
+
+release_file_locks() {
+    local task_id="$1"
+    [[ -f "$FILE_LOCK" ]] || return 0
+    python3 "$FILE_LOCK" release "$task_id" 2>/dev/null || true
+}
+
+check_file_lock_conflicts() {
+    # Check if a task's estimated paths conflict with running locks.
+    # Returns 0 if conflict, 1 if clear.
+    local project="$1" project_path="$2" prompt="$3"
+    [[ -f "$FILE_LOCK" ]] || return 1
+
+    local paths
+    paths=$(python3 "$FILE_LOCK" estimate "$project_path" "$prompt" 2>/dev/null) || return 1
+    [[ -z "$paths" ]] && return 1
+
+    # shellcheck disable=SC2086
+    echo "$paths" | xargs python3 "$FILE_LOCK" check "$project" >/dev/null 2>&1
+    return $?  # 0 = conflict found, 1 = no conflict
+}
+
+# ─── Rebase before PR ──────────────────────────────────────────────────────
+# Layer 2: After generator finishes, rebase onto latest main before evaluator.
+# If rebase fails, attempt a short Claude session to resolve conflicts.
+
+rebase_before_pr() {
+    local task_id="$1" project_path="$2" branch="$3" base_branch="${4:-main}"
+
+    log "[rebase] Rebasing $branch onto origin/$base_branch"
+
+    cd "$project_path" || return 1
+    git fetch origin 2>/dev/null || true
+
+    # Check if there's anything to rebase (are we behind?)
+    local behind
+    behind=$(git rev-list --count "$branch..origin/$base_branch" 2>/dev/null) || behind=0
+    if [[ "$behind" == "0" ]]; then
+        log "[rebase] Already up to date with origin/$base_branch"
+        return 0
+    fi
+
+    log "[rebase] $behind commit(s) behind origin/$base_branch — rebasing"
+
+    # Attempt rebase
+    if git rebase "origin/$base_branch" 2>/dev/null; then
+        ok "[rebase] Rebase succeeded"
+        # Force-push the rebased branch
+        git push --force-with-lease origin "$branch" 2>/dev/null || git push -f origin "$branch" 2>/dev/null || {
+            warn "[rebase] Push after rebase failed — continuing anyway"
+        }
+        return 0
+    fi
+
+    # Rebase failed — try Claude conflict resolution (15 turns max)
+    warn "[rebase] Rebase conflict detected — attempting auto-resolution"
+    git rebase --abort 2>/dev/null
+
+    local resolve_log="$LOGS_DIR/${task_id}.rebase-resolve.log"
+    local resolve_prompt="REBASE CONFLICT RESOLUTION — Automated.
+
+The branch '$branch' has conflicts when rebasing onto 'origin/$base_branch'.
+
+Steps:
+1. Run: git rebase origin/$base_branch
+2. For each conflict, resolve it by reading both sides and merging logically
+3. After resolving each file: git add <file> && git rebase --continue
+4. When done: git push --force-with-lease origin $branch
+5. If you cannot resolve: git rebase --abort and exit with error
+
+Prefer keeping the branch's changes unless the base changes are clearly newer."
+
+    log "[rebase] Launching conflict resolver Claude (15 turns max)"
+    local resolve_exit=0
+    "$CLAUDE_BIN" -p \
+        --dangerously-skip-permissions \
+        --max-turns 15 \
+        --append-system-prompt "You are a CONFLICT RESOLVER. Resolve git rebase conflicts. Be quick and precise. Do NOT create new features or refactor." \
+        "$resolve_prompt" \
+        2>&1 | tee "$resolve_log" || resolve_exit=${PIPESTATUS[0]:-$?}
+
+    if [[ $resolve_exit -eq 0 ]]; then
+        # Verify the rebase completed (we should no longer be mid-rebase)
+        if [[ ! -d "$project_path/.git/rebase-merge" && ! -d "$project_path/.git/rebase-apply" ]]; then
+            ok "[rebase] Conflict resolution succeeded"
+            return 0
+        fi
+    fi
+
+    # Still broken — abort and mark for manual rebase
+    git rebase --abort 2>/dev/null
+    log_error "D-080" "Rebase conflict resolution failed for $task_id ($branch)"
+    return 1
+}
+
 # ─── Run a single task ────────────────────────────────────────────────────────
 
 run_task() {
@@ -1179,6 +1311,14 @@ except: pass
     git submodule update --init 2>/dev/null || true
 
     [[ -n "$subdir" ]] && { cd "$subdir" || { err "cd failed: $subdir"; return 1; }; }
+
+    # ─── Acquire file locks (Layer 1) ────────────────────
+    local project_name_for_lock
+    project_name_for_lock=$(task_field "$task_file" project_name "unknown")
+    acquire_file_locks "$task_id" "$project_name_for_lock" "$project_path" "$task_prompt" || {
+        warn "[file-lock] Skipping lock acquisition (conflict or unavailable) for $task_id"
+        # Don't block — conflicts are advisory. The task runs anyway.
+    }
 
     # ─── Planner (optional) ──────────────────────────────
     local planner_enabled
@@ -1386,6 +1526,14 @@ All work continues on branch ${branch}. Push and open/update PR when done."
     if [[ $exit_code -eq 0 ]]; then
         ok "Task $task_id completed successfully (generator done)"
 
+        # ─── Rebase before PR (Layer 2) ──────────────────────
+        local rebase_note=""
+        write_task_status "$task_id" "rebasing" "Rebasing onto latest $base_branch" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+        if ! rebase_before_pr "$task_id" "$project_path" "$branch" "$base_branch"; then
+            warn "[rebase] Rebase failed for $task_id — task will need manual rebase"
+            rebase_note="⚠️ **Needs manual rebase** — auto-rebase onto $base_branch failed."
+        fi
+
         # ─── Evaluator loop ───────────────────────────────────
         local eval_enabled eval_passed=true eval_round=0 eval_total_rounds=0
         local eval_score=0 eval_verdict="SKIPPED"
@@ -1535,7 +1683,9 @@ created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 ---
 
 ## Task Completed
-${eval_section}
+${eval_section}${rebase_note:+
+${rebase_note}
+}
 **Branch:** ${branch}
 **Task:** $(echo "$task_prompt" | head -1)
 
@@ -1579,6 +1729,9 @@ created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
 Check the log: ~/.claude-fleet/logs/${task_id}.log
 REVIEW_EOF
     fi
+
+    # ─── Release file locks (Layer 1) ────────────────────────
+    release_file_locks "$task_id"
 }
 
 # ─── Async task launcher ─────────────────────────────────────────────────────

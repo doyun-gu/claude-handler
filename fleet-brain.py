@@ -857,6 +857,78 @@ def rebase_on_base(project_path: str, branch: str,
     }
 
 
+def rebase_open_prs(project_path: str, base_branch: str = "main",
+                    exclude_branch: str = "") -> list:
+    """
+    After merging a PR, trigger rebase on all remaining open worker/ PRs
+    from the same project. This keeps subsequent PRs up-to-date with main
+    and prevents cascading conflicts.
+
+    Returns list of (pr_number, success) tuples.
+    """
+    # Fetch latest so we have the new main
+    git_run(["fetch", "origin"], cwd=project_path)
+
+    # List open PRs with worker/ prefix
+    result = gh_run(
+        ["pr", "list", "--state", "open",
+         "--json", "number,headRefName",
+         "-q", f'[.[] | select(.headRefName | startswith("worker/"))]'],
+        cwd=project_path,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+
+    try:
+        prs = json.loads(result.stdout.strip())
+    except json.JSONDecodeError:
+        return []
+
+    results = []
+    for pr in prs:
+        pr_number = pr.get("number")
+        head_branch = pr.get("headRefName", "")
+
+        if not pr_number or head_branch == exclude_branch:
+            continue
+
+        print(f"[brain] Rebasing PR #{pr_number} ({head_branch}) onto {base_branch}...",
+              file=sys.stderr)
+
+        # Use GitHub API to update the PR branch
+        # gh api repos/{owner}/{repo}/pulls/{number}/update-branch -f update_method=rebase
+        update_result = gh_run(
+            ["pr", "update-branch", str(pr_number), "--rebase"],
+            cwd=project_path,
+        )
+
+        success = update_result.returncode == 0
+        if success:
+            print(f"[brain]   ✅ PR #{pr_number} rebased", file=sys.stderr)
+        else:
+            # Fallback: try local rebase + force push
+            print(f"[brain]   ⚠️  GitHub rebase failed for PR #{pr_number}, trying local...",
+                  file=sys.stderr)
+            local_result = rebase_on_base(project_path, head_branch, base_branch)
+            if local_result["success"]:
+                push = git_run(
+                    ["push", "--force-with-lease", "origin", head_branch],
+                    cwd=project_path,
+                )
+                success = push.returncode == 0
+                if success:
+                    print(f"[brain]   ✅ PR #{pr_number} rebased (local)", file=sys.stderr)
+                else:
+                    print(f"[brain]   ❌ PR #{pr_number} push failed", file=sys.stderr)
+            else:
+                print(f"[brain]   ❌ PR #{pr_number} has conflicts — needs manual rebase",
+                      file=sys.stderr)
+
+        results.append((pr_number, success))
+
+    return results
+
+
 def diagnose_conflict(project_path: str, branch: str,
                       base_branch: str = "main",
                       conflict_files: list = None) -> str:
@@ -1508,6 +1580,7 @@ def cmd_pr_auto_merge(args):
         sys.exit(0)
 
     # Auto-merge: find the PR number
+    base_branch = task.base_branch
     pr_info = gh_run(
         ["pr", "list", "--head", branch, "--json", "number,url", "-q", ".[0]"],
         cwd=project_path,
@@ -1524,6 +1597,23 @@ def cmd_pr_auto_merge(args):
     if not pr_number:
         print(f"[brain] Could not determine PR number", file=sys.stderr)
         sys.exit(1)
+
+    # Layer 3: Rebase onto latest main before merging
+    print(f"[brain] Rebasing PR #{pr_number} onto latest {base_branch}...",
+          file=sys.stderr)
+    rebase_result = rebase_on_base(project_path, branch, base_branch)
+    if rebase_result["success"]:
+        # Push rebased branch
+        push_result = git_run(
+            ["push", "--force-with-lease", "origin", branch],
+            cwd=project_path,
+        )
+        if push_result.returncode != 0:
+            git_run(["push", "-f", "origin", branch], cwd=project_path)
+        print(f"[brain] PR #{pr_number} rebased successfully", file=sys.stderr)
+    else:
+        print(f"[brain] ⚠️  Pre-merge rebase failed for PR #{pr_number} — "
+              f"attempting merge anyway", file=sys.stderr)
 
     # Merge the PR
     print(f"[brain] Auto-merging PR #{pr_number}...", file=sys.stderr)
@@ -1552,12 +1642,21 @@ def cmd_pr_auto_merge(args):
         f.truncate()
 
     print(f"[brain] ✅ Auto-merged PR #{pr_number}", file=sys.stderr)
+
+    # Layer 3: Cascade rebase to remaining open PRs
+    cascade_results = rebase_open_prs(
+        project_path, base_branch, exclude_branch=branch)
+    cascade_info = []
+    for cascade_pr, success in cascade_results:
+        cascade_info.append({"pr": cascade_pr, "rebased": success})
+
     print(json.dumps({
         "action": "auto_merged",
         "pr_number": pr_number,
         "pr_url": pr_url,
         "category": classification["category"],
         "reason": classification["reason"],
+        "cascade_rebased": cascade_info,
     }))
 
 
