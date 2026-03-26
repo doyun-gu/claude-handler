@@ -662,7 +662,7 @@ PLANNER RULES:
 
     log "  Planner: expanding prompt into spec"
     "$CLAUDE_BIN" -p \
-        --dangerously-skip-permissions \
+        --permission-mode auto \
         --max-turns 20 \
         --append-system-prompt "$planner_system" \
         "Create a detailed specification for this task.
@@ -823,7 +823,7 @@ ${spec_content}
     # Run evaluator Claude session (short: 30 turns max, separate context)
     log "  Evaluator round ${eval_round}: launching (type=${task_type}, max_turns=30)"
     "$CLAUDE_BIN" -p \
-        --dangerously-skip-permissions \
+        --permission-mode auto \
         --max-turns 30 \
         --append-system-prompt "$eval_system" \
         "$eval_prompt" \
@@ -956,7 +956,7 @@ if [[ -z "\$PROMPT" ]]; then
 fi
 
 claude -p \\
-    --dangerously-skip-permissions \\
+    --permission-mode auto \\
     --max-turns ${max_turns} \\
     --append-system-prompt '${escaped_system_prompt}' \\
     "\$PROMPT"
@@ -1164,7 +1164,7 @@ Prefer keeping the branch's changes unless the base changes are clearly newer."
     log "[rebase] Launching conflict resolver Claude (15 turns max)"
     local resolve_exit=0
     "$CLAUDE_BIN" -p \
-        --dangerously-skip-permissions \
+        --permission-mode auto \
         --max-turns 15 \
         --append-system-prompt "You are a CONFLICT RESOLVER. Resolve git rebase conflicts. Be quick and precise. Do NOT create new features or refactor." \
         "$resolve_prompt" \
@@ -1435,14 +1435,14 @@ WORKER RULES:
     # Note: script -q produces binary typescript on macOS — use tee instead.
     if command -v stdbuf &>/dev/null; then
         stdbuf -oL "$CLAUDE_BIN" -p \
-            --dangerously-skip-permissions \
+            --permission-mode auto \
             --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
             "$task_prompt" \
             2>&1 | tee "$log_file" || exit_code=${PIPESTATUS[0]:-$?}
     else
         "$CLAUDE_BIN" -p \
-            --dangerously-skip-permissions \
+            --permission-mode auto \
             --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
             "$task_prompt" \
@@ -1512,7 +1512,7 @@ All work continues on branch ${branch}. Push and open/update PR when done."
 
         exit_code=0
         "$CLAUDE_BIN" -p \
-            --dangerously-skip-permissions \
+            --permission-mode auto \
             --max-turns "$max_turns" \
             --append-system-prompt "$worker_prompt" \
             "$continuation_prompt" \
@@ -1603,7 +1603,7 @@ Push and update the PR when done."
                     write_task_status "$task_id" "running" "Generator retry round $eval_round" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
 
                     "$CLAUDE_BIN" -p \
-                        --dangerously-skip-permissions \
+                        --permission-mode auto \
                         --max-turns "$max_turns" \
                         --append-system-prompt "$worker_prompt" \
                         "$retry_prompt" \
@@ -1793,7 +1793,7 @@ try_dispatch_backlog() {
   "base_branch": "main",
   "prompt": ${bl_prompt_json},
   "budget_usd": ${bl_budget},
-  "permission_mode": "dangerously-skip-permissions",
+  "permission_mode": "auto",
   "source": "backlog"
 }
 TASKEOF
