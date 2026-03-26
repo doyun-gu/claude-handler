@@ -161,7 +161,7 @@ cat >> ~/.ssh/config << 'EOF'
 
 Host dell-xps
     HostName dell-xps  # Tailscale hostname
-    User doyungu
+    User <your-username>
     IdentityFile ~/.ssh/id_ed25519
     StrictHostKeyChecking no
 EOF
@@ -198,7 +198,7 @@ cat > ~/.claude-fleet/machine-role.conf << 'EOF'
 MACHINE_ROLE=worker
 MACHINE_NAME=dell-xps
 SSH_TARGET=mac-mini
-CLAUDE_BIN=/home/doyungu/.local/bin/claude
+CLAUDE_BIN=$HOME/.local/bin/claude
 EOF
 ```
 

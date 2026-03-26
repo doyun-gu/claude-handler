@@ -91,9 +91,9 @@ fi
 
 # ─── Remote workers ──────────────────────────────────────────────────────────
 # Workers are defined in ~/.claude-fleet/workers.json (optional).
-# Format: [{"name": "dell-xps", "ssh": "dell-xps", "claude_bin": "/home/doyungu/.local/bin/claude",
+# Format: [{"name": "worker-2", "ssh": "worker-2", "claude_bin": "$HOME/.local/bin/claude",
 #            "topics": ["engine","test","solver"], "project_paths": {
-#              "DPSpice-com": "/home/doyungu/Developer/dynamic-phasors/DPSpice-com"}}]
+#              "my-project": "$HOME/Developer/my-project"}}]
 # If the file doesn't exist, all tasks run locally.
 
 WORKERS_FILE="$FLEET_DIR/workers.json"
@@ -156,7 +156,7 @@ for w in workers:
 
     # Fallback: mirror the local path structure under ~/Developer
     if [[ -z "$remote_path" ]]; then
-        remote_path="/home/doyungu/Developer/$(basename "$(dirname "$local_path")")/$(basename "$local_path")"
+        remote_path="$HOME/Developer/$(basename "$(dirname "$local_path")")/$(basename "$local_path")"
     fi
     echo "$remote_path"
 }

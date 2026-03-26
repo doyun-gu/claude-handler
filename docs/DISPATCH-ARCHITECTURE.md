@@ -84,7 +84,7 @@ Each dispatched task consists of **two files** in `~/.claude-fleet/tasks/`:
   "slug": "feature-slug",
   "branch": "worker/feature-slug-20260325",
   "project_name": "DPSpice-com",
-  "project_path": "/Users/doyungu/Developer/dynamic-phasors/DPSpice-com",
+  "project_path": "/Users/<username>/Developer/my-project",
   "status": "queued",
   "base_branch": "main",
   "prompt_file": "20260325-143000-feature-slug.prompt",

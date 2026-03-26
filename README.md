@@ -383,7 +383,7 @@ This installs everything: system packages, fleet directories, all project repos,
 cat >> ~/.ssh/config << 'EOF'
 Host dell-xps
     HostName dell-xps
-    User doyungu
+    User <your-username>
     IdentityFile ~/.ssh/id_ed25519
 EOF
 

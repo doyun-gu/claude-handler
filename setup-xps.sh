@@ -9,7 +9,7 @@
 #   5. SSH key generated and added to GitHub (ssh-keygen + gh ssh-key add)
 #
 # Usage:
-#   git clone git@github.com:doyun-gu/claude-handler.git ~/Developer/claude-handler
+#   git clone git@github.com:<your-github-user>/claude-handler.git ~/Developer/claude-handler
 #   cd ~/Developer/claude-handler
 #   ./setup-xps.sh
 #
@@ -51,6 +51,13 @@ echo ""
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FAIL=0
+
+# ─── Configuration (edit these before running) ──────────────────────────────
+GITHUB_USER="${GITHUB_USER:-$(gh api user --jq '.login' 2>/dev/null || echo 'your-github-user')}"
+GIT_NAME="${GIT_NAME:-$(git config --global user.name 2>/dev/null || echo '')}"
+GIT_EMAIL="${GIT_EMAIL:-$(git config --global user.email 2>/dev/null || echo '')}"
+CONTROLLER_HOST="${CONTROLLER_HOST:-mac-mini}"
+MACHINE_HOSTNAME="${MACHINE_HOSTNAME:-dell-xps}"
 
 # Check Claude Code
 if command -v claude &>/dev/null; then
@@ -124,14 +131,14 @@ ok "Fleet directories created"
 # ─── Step 3: Machine role config ─────────────────────────────────────────────
 
 info "Writing machine-role.conf..."
-cat > ~/.claude-fleet/machine-role.conf << 'EOF'
+cat > ~/.claude-fleet/machine-role.conf << EOF
 MACHINE_ROLE=worker
-MACHINE_NAME=dell-xps
-CONTROLLER=mac-mini
-CLAUDE_BIN=/home/doyungu/.local/bin/claude
-WORKER_CLAUDE_BIN=/home/doyungu/.local/bin/claude
+MACHINE_NAME=$MACHINE_HOSTNAME
+CONTROLLER=$CONTROLLER_HOST
+CLAUDE_BIN=$HOME/.local/bin/claude
+WORKER_CLAUDE_BIN=$HOME/.local/bin/claude
 EOF
-ok "Machine role: worker (controller: mac-mini)"
+ok "Machine role: worker (controller: $CONTROLLER_HOST)"
 
 # ─── Step 4: Clone project repos ─────────────────────────────────────────────
 
@@ -152,32 +159,32 @@ clone_if_missing() {
 }
 
 # Core repos (needed for fleet)
-clone_if_missing "git@github.com:doyun-gu/DPSpice-com.git" \
+clone_if_missing "git@github.com:$GITHUB_USER/DPSpice-com.git" \
     "$HOME/Developer/dynamic-phasors/DPSpice-com" "DPSpice-com"
 
-clone_if_missing "git@github.com:doyun-gu/claude-handler.git" \
+clone_if_missing "git@github.com:$GITHUB_USER/claude-handler.git" \
     "$HOME/Developer/claude-handler" "claude-handler"
 
-clone_if_missing "git@github.com:doyun-gu/my-world.git" \
+clone_if_missing "git@github.com:$GITHUB_USER/my-world.git" \
     "$HOME/Developer/my-world" "my-world"
 
 # Secondary repos
-clone_if_missing "git@github.com:doyun-gu/faradaysim.git" \
+clone_if_missing "git@github.com:$GITHUB_USER/faradaysim.git" \
     "$HOME/Developer/faradaysim" "faradaysim"
 
-clone_if_missing "https://github.com/doyun-gu/knoxur.git" \
+clone_if_missing "https://github.com/$GITHUB_USER/knoxur.git" \
     "$HOME/Developer/knoxur" "knoxur"
 
-clone_if_missing "git@github.com:doyun-gu/doyungu-com.git" \
+clone_if_missing "git@github.com:$GITHUB_USER/doyungu-com.git" \
     "$HOME/Developer/doyungu-com" "doyungu-com"
 
-clone_if_missing "git@github.com:doyun-gu/phixty-com.git" \
+clone_if_missing "git@github.com:$GITHUB_USER/phixty-com.git" \
     "$HOME/Developer/phixty-com" "phixty-com"
 
-clone_if_missing "git@github.com:doyun-gu/study-with-claude.git" \
+clone_if_missing "git@github.com:$GITHUB_USER/study-with-claude.git" \
     "$HOME/Developer/study-with-claude" "study-with-claude"
 
-clone_if_missing "git@github.com:doyun-gu/project-JULY.git" \
+clone_if_missing "git@github.com:$GITHUB_USER/project-JULY.git" \
     "$HOME/Developer/project-JULY" "project-JULY"
 
 echo ""
@@ -237,14 +244,14 @@ fi
 # ─── Step 7: Copy memory ─────────────────────────────────────────────────────
 
 info "Setting up memory..."
-MEMORY_DIR="$HOME/.claude/projects/-Users-doyungu/memory"
+MEMORY_DIR="$HOME/.claude/projects/-Users-$(whoami)/memory"
 mkdir -p "$MEMORY_DIR"
 
-# Copy from Mac Mini if accessible, otherwise create minimal
+# Copy from controller if accessible, otherwise create minimal
 if [[ -f "$MEMORY_DIR/MEMORY.md" ]]; then
     ok "Memory already exists"
 else
-    warn "No memory found. Sync from Mac Mini: rsync -az mac-mini:~/.claude/projects/-Users-doyungu/memory/ $MEMORY_DIR/"
+    warn "No memory found. Sync from controller: rsync -az $CONTROLLER_HOST:~/.claude/projects/-Users-\$(whoami)/memory/ $MEMORY_DIR/"
 fi
 
 # ─── Step 8: WSL configuration ───────────────────────────────────────────────
@@ -252,7 +259,7 @@ fi
 info "Checking WSL configuration..."
 
 # /etc/wsl.conf
-if grep -q "dell-xps" /etc/wsl.conf 2>/dev/null; then
+if grep -q "$MACHINE_HOSTNAME" /etc/wsl.conf 2>/dev/null; then
     ok "/etc/wsl.conf already configured"
 else
     info "Writing /etc/wsl.conf (requires sudo)..."
@@ -261,7 +268,7 @@ else
 systemd=true
 
 [network]
-hostname=dell-xps
+hostname=$MACHINE_HOSTNAME
 
 [automount]
 enabled=true
@@ -311,69 +318,73 @@ info "Checking git config..."
 if git config --global user.name &>/dev/null; then
     ok "Git user: $(git config --global user.name)"
 else
-    git config --global user.name "Doyun Gu"
-    git config --global user.email "doyun@doyungu.com"
-    ok "Git user configured"
+    if [[ -n "$GIT_NAME" && -n "$GIT_EMAIL" ]]; then
+        git config --global user.name "$GIT_NAME"
+        git config --global user.email "$GIT_EMAIL"
+        ok "Git user configured: $GIT_NAME <$GIT_EMAIL>"
+    else
+        warn "Git user not configured. Run: git config --global user.name 'Your Name' && git config --global user.email 'your@email.com'"
+    fi
 fi
 
 # ─── Step 10: Projects registry ──────────────────────────────────────────────
 
 info "Writing projects.json..."
-cat > ~/.claude-fleet/projects.json << 'JSONEOF'
+cat > ~/.claude-fleet/projects.json << JSONEOF
 {
   "projects": [
     {
       "name": "DPSpice-com",
-      "path": "/home/doyungu/Developer/dynamic-phasors/DPSpice-com",
-      "repo": "git@github.com:doyun-gu/DPSpice-com.git",
+      "path": "$HOME/Developer/dynamic-phasors/DPSpice-com",
+      "repo": "git@github.com:$GITHUB_USER/DPSpice-com.git",
       "primary": true
     },
     {
       "name": "faradaysim",
-      "path": "/home/doyungu/Developer/faradaysim",
-      "repo": "git@github.com:doyun-gu/faradaysim.git",
+      "path": "$HOME/Developer/faradaysim",
+      "repo": "git@github.com:$GITHUB_USER/faradaysim.git",
       "primary": false
     },
     {
       "name": "claude-handler",
-      "path": "/home/doyungu/Developer/claude-handler",
-      "repo": "git@github.com:doyun-gu/claude-handler.git",
+      "path": "$HOME/Developer/claude-handler",
+      "repo": "git@github.com:$GITHUB_USER/claude-handler.git",
       "primary": false
     },
     {
       "name": "knoxur",
-      "path": "/home/doyungu/Developer/knoxur",
-      "repo": "https://github.com/doyun-gu/knoxur.git",
+      "path": "$HOME/Developer/knoxur",
+      "repo": "https://github.com/$GITHUB_USER/knoxur.git",
       "primary": false
     },
     {
       "name": "my-world",
-      "path": "/home/doyungu/Developer/my-world",
-      "repo": "git@github.com:doyun-gu/my-world.git",
+      "path": "$HOME/Developer/my-world",
+      "repo": "git@github.com:$GITHUB_USER/my-world.git",
       "primary": false
     },
     {
       "name": "doyungu-com",
-      "path": "/home/doyungu/Developer/doyungu-com",
-      "repo": "git@github.com:doyun-gu/doyungu-com.git",
+      "path": "$HOME/Developer/doyungu-com",
+      "repo": "git@github.com:$GITHUB_USER/doyungu-com.git",
       "primary": false
     },
     {
       "name": "phixty-com",
-      "path": "/home/doyungu/Developer/phixty-com",
-      "repo": "git@github.com:doyun-gu/phixty-com.git",
+      "path": "$HOME/Developer/phixty-com",
+      "repo": "git@github.com:$GITHUB_USER/phixty-com.git",
       "primary": false
     },
     {
       "name": "study-with-claude",
-      "path": "/home/doyungu/Developer/study-with-claude",
-      "repo": "git@github.com:doyun-gu/study-with-claude.git",
+      "path": "$HOME/Developer/study-with-claude",
+      "repo": "git@github.com:$GITHUB_USER/study-with-claude.git",
       "primary": false
     },
     {
       "name": "project-JULY",
-      "path": "/home/doyungu/Developer/project-JULY",
-      "repo": "git@github.com:doyun-gu/project-JULY.git",
+      "path": "$HOME/Developer/project-JULY",
+      "repo": "git@github.com:$GITHUB_USER/project-JULY.git",
       "primary": false
     }
   ]
@@ -446,15 +457,15 @@ echo ""
 echo "Next steps:"
 echo "  1. From PowerShell: wsl --shutdown  (apply WSL config changes)"
 echo "  2. Restart WSL"
-echo "  3. From Mac Mini: add dell-xps to ~/.ssh/config:"
+echo "  3. From controller: add $MACHINE_HOSTNAME to ~/.ssh/config:"
 echo ""
-echo "     Host dell-xps"
-echo "         HostName dell-xps"
-echo "         User doyungu"
+echo "     Host $MACHINE_HOSTNAME"
+echo "         HostName $MACHINE_HOSTNAME"
+echo "         User $(whoami)"
 echo "         IdentityFile ~/.ssh/id_ed25519"
 echo ""
-echo "  4. From Mac Mini: ssh dell-xps 'echo connected'"
-echo "  5. From Mac Mini: sync memory:"
-echo "     rsync -az ~/.claude/projects/-Users-doyungu/memory/ dell-xps:~/.claude/projects/-Users-doyungu/memory/"
-echo "  6. Test dispatch: /dispatch @DPSpice-com route:dell-xps <task>"
+echo "  4. From controller: ssh $MACHINE_HOSTNAME 'echo connected'"
+echo "  5. From controller: sync memory:"
+echo "     rsync -az ~/.claude/projects/-Users-\$(whoami)/memory/ $MACHINE_HOSTNAME:$MEMORY_DIR/"
+echo "  6. Test dispatch: /dispatch @DPSpice-com route:$MACHINE_HOSTNAME <task>"
 echo ""

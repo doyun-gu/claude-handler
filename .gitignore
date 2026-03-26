@@ -16,6 +16,9 @@ events.json
 *.log
 *.log.*
 
+# Local Claude settings (contains personal paths)
+.claude/settings.local.json
+
 # macOS
 .DS_Store
 
