@@ -149,7 +149,14 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
 
 
 def migrate_tasks() -> int:
-    """Import task manifests from JSON files into SQLite. Returns count."""
+    """Import task manifests from JSON files into SQLite. Returns count.
+
+    On conflict: only update status/finished_at/pr_url/raw_json if the JSON
+    file has a MORE advanced status. This prevents stale JSON files (which
+    the daemon never updates) from overwriting corrected status set by
+    sync_from_tasks_db().
+    """
+    STATUS_RANK = {"queued": 0, "running": 1, "completed": 2, "merged": 3, "failed": 2, "blocked": 1}
     conn = get_conn()
     tasks_dir = FLEET_DIR / "tasks"
     if not tasks_dir.exists():
@@ -160,7 +167,23 @@ def migrate_tasks() -> int:
         try:
             data = json.loads(f.read_text())
             task_id = data.get("id", f.stem)
-            # Upsert — update if exists, insert if not
+            json_status = data.get("status", "queued")
+
+            # Check if task already exists with a more advanced status
+            existing = conn.execute(
+                "SELECT status FROM tasks WHERE id = ?", (task_id,)
+            ).fetchone()
+
+            if existing:
+                existing_rank = STATUS_RANK.get(existing["status"], 0)
+                json_rank = STATUS_RANK.get(json_status, 0)
+                if json_rank <= existing_rank:
+                    # JSON has same or older status — skip to avoid overwriting
+                    count += 1
+                    continue
+
+            # Insert or update (only reaches here for new tasks or JSON with
+            # a more advanced status than fleet.db)
             conn.execute("""
                 INSERT INTO tasks (id, slug, branch, project_name, project_path,
                     subdir, dispatched_at, started_at, finished_at, merged_at,
@@ -190,7 +213,7 @@ def migrate_tasks() -> int:
                 data.get("started_at", ""),
                 data.get("finished_at", ""),
                 data.get("merged_at", ""),
-                data.get("status", "queued"),
+                json_status,
                 data.get("base_branch", "main"),
                 data.get("prompt", ""),
                 data.get("prompt_file", ""),

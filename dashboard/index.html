@@ -1946,7 +1946,11 @@ function renderTaskQueue(tasks) {
     if (t.status !== 'completed' && t.status !== 'merged') return false;
     var fin = t.finished_at || t.merged_at;
     return fin && new Date(fin).getTime() > cutoff24h;
-  }).slice(0, 8);
+  }).sort(function(a, b) {
+    var fa = a.finished_at || a.merged_at || '';
+    var fb = b.finished_at || b.merged_at || '';
+    return fb.localeCompare(fa);
+  }).slice(0, 20);
   const failed = tasks.filter(function(t) { return t.status === 'failed' || t.status === 'blocked'; });
 
   var columns = [
