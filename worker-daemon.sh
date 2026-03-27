@@ -236,6 +236,7 @@ task_field() {
 }
 
 TASK_DB="$SCRIPT_DIR/task-db.py"
+FILE_LOCK="$SCRIPT_DIR/file-lock.py"
 
 count_tasks() {
     # Primary: SQLite
