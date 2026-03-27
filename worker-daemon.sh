@@ -57,6 +57,45 @@ log_error() {
     LAST_ERROR="$code: $msg"
 }
 
+# ─── Rate limit detection ─────────────────────────────────────────────────────
+# Checks a log file for rate limit messages. Returns 0 if rate-limited.
+# Usage: check_rate_limit "$log_file" && { handle it }
+
+check_rate_limit() {
+    local check_log="$1"
+    [[ ! -f "$check_log" || ! -s "$check_log" ]] && return 1
+    tail -20 "$check_log" 2>/dev/null | grep -qiE "hit your limit|rate limit|too many requests|429|quota exceeded" 2>/dev/null
+}
+
+# Calculates seconds to sleep until rate limit resets. Parses "resets Xpm/am" from log.
+# Falls back to 30 minutes if no reset time found.
+get_rate_limit_sleep() {
+    local check_log="$1"
+    local reset_hour=""
+    reset_hour=$(tail -20 "$check_log" 2>/dev/null | grep -oE 'resets [0-9]{1,2}(am|pm|AM|PM)' | grep -oE '[0-9]{1,2}(am|pm|AM|PM)' | tail -1) || reset_hour=""
+
+    local sleep_seconds=1800  # default: 30 minutes
+    if [[ -n "$reset_hour" ]]; then
+        local hour_num ampm now_epoch target_epoch
+        hour_num=$(echo "$reset_hour" | grep -oE '[0-9]+')
+        ampm=$(echo "$reset_hour" | grep -oE '(am|pm|AM|PM)')
+        if [[ "$ampm" =~ [pP][mM] && "$hour_num" -ne 12 ]]; then
+            hour_num=$((hour_num + 12))
+        elif [[ "$ampm" =~ [aA][mM] && "$hour_num" -eq 12 ]]; then
+            hour_num=0
+        fi
+        now_epoch=$(date +%s)
+        target_epoch=$(date -j -v"${hour_num}"H -v0M -v0S +%s 2>/dev/null) || target_epoch=""
+        if [[ -n "$target_epoch" ]]; then
+            if (( target_epoch <= now_epoch )); then
+                target_epoch=$((target_epoch + 86400))
+            fi
+            sleep_seconds=$((target_epoch - now_epoch + 120))  # +2 min buffer
+        fi
+    fi
+    echo "$sleep_seconds"
+}
+
 # ─── Script directory (fail fast if unresolvable) ─────────────────────────────
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -1472,6 +1511,30 @@ WORKER RULES:
     kill "$heartbeat_pid" 2>/dev/null
     wait "$heartbeat_pid" 2>/dev/null
 
+    # ─── Rate limit detection: re-queue and sleep instead of failing ───
+    if [[ $exit_code -ne 0 ]] && check_rate_limit "$log_file"; then
+        local rl_line
+        rl_line=$(tail -20 "$log_file" 2>/dev/null | grep -iE "hit your limit|rate limit|too many requests|429|quota exceeded" | tail -1) || rl_line=""
+        warn "Rate limit detected for task $task_id: $rl_line"
+
+        # Re-queue the task (not failed — just waiting for rate limit)
+        update_task_status "$task_file" "queued" "error_message="
+        write_task_status "$task_id" "rate_limited" "Waiting for rate limit reset" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+        log "Re-queued task $task_id — will retry after rate limit resets"
+
+        local rl_sleep
+        rl_sleep=$(get_rate_limit_sleep "$log_file")
+        local rl_min=$((rl_sleep / 60))
+        log "Sleeping ${rl_min} minutes until rate limit resets..."
+        sleep "$rl_sleep"
+        log "Rate limit sleep done — resuming task processing"
+
+        # Clean up and return (don't fall through to failure handling)
+        release_file_locks "$task_id"
+        clean_task_status "$task_id"
+        return 0
+    fi
+
     # ─── Context reset: continue in fresh session if handoff exists ────
     local reset_trigger="$FLEET_DIR/eval/${task_id}.reset-trigger"
     local handoff_file="$FLEET_DIR/eval/${task_id}.handoff.md"
@@ -1539,6 +1602,21 @@ All work continues on branch ${branch}. Push and open/update PR when done."
 
         kill "$reset_hb_pid" 2>/dev/null
         wait "$reset_hb_pid" 2>/dev/null
+
+        # Rate limit check for context reset runs
+        if [[ $exit_code -ne 0 ]] && check_rate_limit "$reset_log"; then
+            warn "Rate limit hit during context reset for task $task_id"
+            update_task_status "$task_file" "queued" "error_message="
+            write_task_status "$task_id" "rate_limited" "Waiting for rate limit reset (context reset)" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+            local rl_sleep
+            rl_sleep=$(get_rate_limit_sleep "$reset_log")
+            log "Re-queued task $task_id — sleeping $((rl_sleep / 60)) minutes for rate limit..."
+            sleep "$rl_sleep"
+            log "Rate limit sleep done — resuming"
+            release_file_locks "$task_id"
+            clean_task_status "$task_id"
+            return 0
+        fi
     done
 
     # Handle result
@@ -1627,6 +1705,18 @@ Push and update the PR when done."
                         --append-system-prompt "$worker_prompt" \
                         "$retry_prompt" \
                         2>&1 | tee "$retry_log" || {
+                            if check_rate_limit "$retry_log"; then
+                                warn "Rate limit hit during evaluator retry for task $task_id"
+                                update_task_status "$task_file" "queued" "error_message="
+                                write_task_status "$task_id" "rate_limited" "Waiting for rate limit reset (eval retry)" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+                                local rl_sleep
+                                rl_sleep=$(get_rate_limit_sleep "$retry_log")
+                                log "Re-queued task $task_id — sleeping $((rl_sleep / 60)) minutes for rate limit..."
+                                sleep "$rl_sleep"
+                                release_file_locks "$task_id"
+                                clean_task_status "$task_id"
+                                return 0
+                            fi
                             log_error "D-073" "Generator retry failed for task $task_id round $eval_round"
                             break
                         }
