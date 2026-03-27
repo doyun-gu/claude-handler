@@ -30,7 +30,7 @@ from db import get_conn, run_migration, sync_from_json, get_all_tasks, \
     get_auto_heal_log, log_auto_heal, get_task_timeline, get_daily_costs, \
     get_queue_by_project, get_task_stats, get_analytics, \
     get_cumulative_completions, get_recent_completions, get_daily_throughput, \
-    get_loc_history, get_project_loc_from_tasks
+    get_loc_history
 
 
 async def _periodic_sync():
@@ -1739,8 +1739,95 @@ def _count_project_loc(project_path: str) -> dict:
 
 @app.get("/api/stats/loc-history")
 async def get_stats_loc_history():
-    """LOC history: today/week/month aggregated from worker tasks."""
+    """LOC history: today/week/month aggregated from git commit history."""
+    # Try git-based LOC first (accurate), fall back to task DB (legacy)
+    git_loc = _get_loc_from_git()
+    if git_loc:
+        return git_loc
     return get_loc_history()
+
+
+# Cache for git-based LOC history
+_git_loc_cache: dict[str, Any] = {"data": None, "timestamp": 0}
+_GIT_LOC_CACHE_TTL = 120  # seconds
+
+
+def _get_loc_from_git() -> Optional[dict]:
+    """Calculate LOC changes from git commit history per project."""
+    global _git_loc_cache
+
+    now = time.time()
+    if _git_loc_cache["data"] is not None and (now - _git_loc_cache["timestamp"]) < _GIT_LOC_CACHE_TTL:
+        return _git_loc_cache["data"]
+
+    if not PROJECTS_FILE.exists():
+        return None
+
+    try:
+        data = json.loads(PROJECTS_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return None
+
+    periods = {
+        "today": "--since=midnight",
+        "week": "--since=1.week.ago",
+        "month": "--since=1.month.ago",
+    }
+
+    result = {}
+    for period_name, since_flag in periods.items():
+        total_added = 0
+        total_removed = 0
+        by_project = {}
+
+        for proj in data.get("projects", []):
+            name = proj.get("name", "")
+            path = proj.get("path", "")
+            if not name or not path or not Path(path).exists():
+                continue
+
+            try:
+                out = subprocess.run(
+                    ["git", "log", since_flag, "--all", "--shortstat", "--format="],
+                    capture_output=True, text=True, timeout=10, cwd=path,
+                )
+                if out.returncode != 0:
+                    continue
+
+                added = 0
+                removed = 0
+                for line in out.stdout.strip().split("\n"):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    m_ins = re.search(r"(\d+) insertion", line)
+                    m_del = re.search(r"(\d+) deletion", line)
+                    if m_ins:
+                        added += int(m_ins.group(1))
+                    if m_del:
+                        removed += int(m_del.group(1))
+
+                if added > 0 or removed > 0:
+                    by_project[name] = {
+                        "added": added,
+                        "removed": removed,
+                        "net": added - removed,
+                    }
+                    total_added += added
+                    total_removed += removed
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+                continue
+
+        result[period_name] = {
+            "added": total_added,
+            "removed": total_removed,
+            "net": total_added - total_removed,
+            "by_project": by_project,
+        }
+
+    _git_loc_cache["data"] = result
+    _git_loc_cache["timestamp"] = now
+    return result
 
 
 @app.get("/api/stats/projects-loc")
@@ -1752,9 +1839,9 @@ async def get_stats_projects_loc():
     if _loc_cache["data"] is not None and (now - _loc_cache["timestamp"]) < _LOC_CACHE_TTL:
         return _loc_cache["data"]
 
-    # Get worker LOC contribution from tasks DB
-    worker_loc = get_project_loc_from_tasks()
-    worker_by_project = {r["project_name"]: r for r in worker_loc}
+    # Get git-based LOC history for worker contribution (month view)
+    git_loc = _get_loc_from_git()
+    git_month = (git_loc or {}).get("month", {}).get("by_project", {})
 
     # Get project paths from registry
     projects = []
@@ -1768,17 +1855,17 @@ async def get_stats_projects_loc():
                     continue
 
                 loc_data = _count_project_loc(path)
-                worker_data = worker_by_project.get(name, {})
+                git_data = git_month.get(name, {})
 
                 projects.append({
                     "name": name,
                     "code_lines": loc_data["code_lines"],
                     "code_files": loc_data["code_files"],
                     "doc_files": loc_data["doc_files"],
-                    "worker_added": worker_data.get("total_added", 0),
-                    "worker_removed": worker_data.get("total_removed", 0),
-                    "worker_net": worker_data.get("total_added", 0) - worker_data.get("total_removed", 0),
-                    "worker_tasks": worker_data.get("task_count", 0),
+                    "worker_added": git_data.get("added", 0),
+                    "worker_removed": git_data.get("removed", 0),
+                    "worker_net": git_data.get("net", 0),
+                    "worker_tasks": 0,
                 })
         except (json.JSONDecodeError, OSError):
             pass

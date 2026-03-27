@@ -993,6 +993,8 @@ def sync_from_tasks_db() -> int:
     The daemon writes to tasks.db via task-db.py. JSON file updates can
     silently fail (queue-manager.py errors). This function ensures fleet.db
     always reflects the daemon's actual state by reading tasks.db directly.
+
+    Uses upsert: tasks missing from fleet.db are inserted, not skipped.
     """
     tasks_db_path = FLEET_DIR / "tasks.db"
     if not tasks_db_path.exists():
@@ -1007,20 +1009,43 @@ def sync_from_tasks_db() -> int:
     conn = get_conn()
     count = 0
 
+    # Check which columns exist in tasks.db for safe reading
+    try:
+        src_cols = {r[1] for r in src.execute("PRAGMA table_info(tasks)").fetchall()}
+    except sqlite3.Error:
+        src.close()
+        return 0
+
     try:
         rows = src.execute("""
-            SELECT id, status, started_at, finished_at, pr_url,
-                   error_message, route
+            SELECT *
             FROM tasks
             WHERE status != 'queued'
         """).fetchall()
 
         for row in rows:
-            # Only update if fleet.db has a different (stale) status
+            task_id = row["id"]
             existing = conn.execute(
-                "SELECT status FROM tasks WHERE id = ?", (row["id"],)
+                "SELECT status, pr_url, finished_at FROM tasks WHERE id = ?", (task_id,)
             ).fetchone()
-            if existing and existing["status"] != row["status"]:
+
+            new_status = row["status"]
+            new_started = row["started_at"] if "started_at" in src_cols else None
+            new_finished = row["finished_at"] if "finished_at" in src_cols else None
+            new_pr_url = row["pr_url"] if "pr_url" in src_cols else ""
+            new_error = row["error_message"] if "error_message" in src_cols else ""
+            new_route = row["route"] if "route" in src_cols else ""
+
+            if existing:
+                # Update if status, pr_url, or finished_at differ
+                needs_update = (
+                    existing["status"] != new_status
+                    or (new_pr_url and existing["pr_url"] != new_pr_url)
+                    or (new_finished and existing["finished_at"] != new_finished)
+                )
+                if not needs_update:
+                    continue
+
                 conn.execute("""
                     UPDATE tasks SET
                         status = ?,
@@ -1031,34 +1056,60 @@ def sync_from_tasks_db() -> int:
                         route = CASE WHEN ? != '' THEN ? ELSE tasks.route END
                     WHERE id = ?
                 """, (
-                    row["status"],
-                    row["started_at"], row["finished_at"],
-                    row["pr_url"] or "", row["pr_url"] or "",
-                    row["error_message"] or "", row["error_message"] or "",
-                    row["route"] or "", row["route"] or "",
-                    row["id"],
+                    new_status,
+                    new_started, new_finished,
+                    new_pr_url or "", new_pr_url or "",
+                    new_error or "", new_error or "",
+                    new_route or "", new_route or "",
+                    task_id,
                 ))
-                # Also update raw_json to keep it consistent
+                # Update raw_json to keep it consistent
                 raw_row = conn.execute(
-                    "SELECT raw_json FROM tasks WHERE id = ?", (row["id"],)
+                    "SELECT raw_json FROM tasks WHERE id = ?", (task_id,)
                 ).fetchone()
                 if raw_row and raw_row["raw_json"]:
                     try:
                         data = json.loads(raw_row["raw_json"])
-                        data["status"] = row["status"]
-                        if row["finished_at"]:
-                            data["finished_at"] = row["finished_at"]
-                        if row["pr_url"]:
-                            data["pr_url"] = row["pr_url"]
-                        if row["route"]:
-                            data["route"] = row["route"]
+                        data["status"] = new_status
+                        if new_finished:
+                            data["finished_at"] = new_finished
+                        if new_pr_url:
+                            data["pr_url"] = new_pr_url
+                        if new_route:
+                            data["route"] = new_route
                         conn.execute(
                             "UPDATE tasks SET raw_json = ? WHERE id = ?",
-                            (json.dumps(data), row["id"]),
+                            (json.dumps(data), task_id),
                         )
                     except (json.JSONDecodeError, TypeError):
                         pass
-                count += 1
+            else:
+                # Task exists in tasks.db but not fleet.db — insert it
+                slug = row["slug"] if "slug" in src_cols else ""
+                branch = row["branch"] if "branch" in src_cols else ""
+                project_name = row["project_name"] if "project_name" in src_cols else ""
+                project_path = row["project_path"] if "project_path" in src_cols else ""
+                raw_data = {
+                    "id": task_id, "slug": slug, "branch": branch,
+                    "project_name": project_name, "project_path": project_path,
+                    "status": new_status, "started_at": new_started or "",
+                    "finished_at": new_finished or "", "pr_url": new_pr_url or "",
+                    "error_message": new_error or "", "route": new_route or "",
+                }
+                conn.execute("""
+                    INSERT OR IGNORE INTO tasks (
+                        id, slug, branch, project_name, project_path,
+                        status, started_at, finished_at, pr_url,
+                        error_message, route, raw_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    task_id, slug, branch, project_name, project_path,
+                    new_status, new_started or "", new_finished or "",
+                    new_pr_url or "", new_error or "", new_route or "",
+                    json.dumps(raw_data),
+                ))
+
+            count += 1
 
         conn.commit()
     except sqlite3.Error:

@@ -122,6 +122,8 @@ def init_db():
         ("eval_score", "INTEGER", "0"),
         ("eval_cost_usd", "REAL", "0.0"),
         ("route", "TEXT", "''"),
+        ("loc_added", "INTEGER", "0"),
+        ("loc_removed", "INTEGER", "0"),
     ]:
         try:
             db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {coltype} DEFAULT {default}")
@@ -328,7 +330,7 @@ def update_status(task_id, status, **kwargs):
     for key, val in kwargs.items():
         if key in ("pr_url", "error_message", "pid", "pgid", "cost_usd",
                    "eval_result", "eval_rounds", "eval_score", "eval_cost_usd",
-                   "route"):
+                   "route", "loc_added", "loc_removed"):
             sets.append(f"{key} = ?")
             vals.append(val)
 
