@@ -1294,7 +1294,28 @@ except: pass
     cd "$project_path" || { err "cd failed: $project_path"; return 1; }
     git fetch origin 2>/dev/null || true
 
-    if ! git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+    # Clean any dirty state from previous tasks
+    git checkout -- . 2>/dev/null || true
+    git clean -fd 2>/dev/null || true
+
+    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+        # Branch exists locally -- reset it to base and checkout
+        git checkout "$branch" 2>/dev/null || true
+        git reset --hard "origin/$base_branch" 2>/dev/null || git reset --hard origin/main 2>/dev/null || true
+    elif git show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
+        # Branch exists on remote but not locally -- delete remote ref and create fresh
+        git branch -D "$branch" 2>/dev/null || true
+        git checkout -b "$branch" "origin/$base_branch" 2>/dev/null ||
+            git checkout -b "$branch" origin/main 2>/dev/null ||
+            git checkout -b "$branch" main 2>/dev/null ||
+            {
+                log_error "D-012" "Cannot create or checkout branch $branch (task: $task_id)"
+                update_task_status "$task_file" "failed" "error_message=Cannot create branch $branch"
+                write_task_status "$task_id" "failed" "Cannot create branch $branch" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+                return 1
+            }
+    else
+        # Fresh branch -- create from base
         git checkout -b "$branch" "origin/$base_branch" 2>/dev/null ||
             git checkout -b "$branch" "$base_branch" 2>/dev/null ||
             git checkout -b "$branch" origin/main 2>/dev/null ||
@@ -1305,8 +1326,6 @@ except: pass
                 write_task_status "$task_id" "failed" "Cannot create branch $branch" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
                 return 1
             }
-    else
-        git checkout "$branch" 2>/dev/null || true
     fi
     git submodule update --init 2>/dev/null || true
 
