@@ -1729,6 +1729,7 @@ function timeAgo(iso) {
   if (!iso) return '--';
   const d = new Date(iso);
   const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 0) return 'just now';
   if (s < 60) return s + 's ago';
   if (s < 3600) return Math.floor(s / 60) + 'm ago';
   if (s < 86400) return Math.floor(s / 3600) + 'h ago';
@@ -1939,7 +1940,16 @@ function renderTaskQueue(tasks) {
   const el = document.getElementById('task-queue');
   const idleSummaryEl = document.getElementById('idle-summary');
 
-  const queued = tasks.filter(function(t) { return t.status === 'queued'; });
+  const queued = tasks.filter(function(t) { return t.status === 'queued'; }).sort(function(a, b) {
+    // Sort by priority descending (highest priority = runs next = top)
+    var pa = a.priority || 0;
+    var pb = b.priority || 0;
+    if (pb !== pa) return pb - pa;
+    // Same priority: by dispatched_at ascending (oldest first = runs first)
+    var da = a.dispatched_at || '';
+    var db = b.dispatched_at || '';
+    return da.localeCompare(db);
+  });
   const running = tasks.filter(function(t) { return t.status === 'running'; });
   const cutoff24h = Date.now() - 24 * 3600 * 1000;
   const completed = tasks.filter(function(t) {
