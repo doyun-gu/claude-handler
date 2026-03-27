@@ -831,16 +831,18 @@ async def get_services():
 async def get_debug():
     """Parse DEBUG_DETECTOR.md from DPSpice project."""
     bugs = []
-    # Find DEBUG_DETECTOR.md
-    search_paths = [
-        Path.home() / "Developer" / "dynamic-phasors" / "DPSpice-com" / "DEBUG_DETECTOR.md",
-        Path.home() / "Developer" / "DPSpice-com" / "DEBUG_DETECTOR.md",
-    ]
+    # Find DEBUG_DETECTOR.md from registered projects
     debug_file = None
-    for p in search_paths:
-        if p.exists():
-            debug_file = p
-            break
+    if PROJECTS_FILE.exists():
+        try:
+            pdata = json.loads(PROJECTS_FILE.read_text())
+            for proj in pdata.get("projects", []):
+                p = Path(proj.get("path", "")) / "DEBUG_DETECTOR.md"
+                if p.exists():
+                    debug_file = p
+                    break
+        except (json.JSONDecodeError, OSError):
+            pass
 
     if debug_file:
         text = debug_file.read_text()
