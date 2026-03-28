@@ -508,7 +508,6 @@ claude-handler/
 ├── demo-healthcheck.sh        # Service health + log scanning + auto-heal
 ├── fleet-notify.sh            # Gmail notifications + reply-to-action
 ├── fleet-brain.py             # Task scheduling + PR management
-├── queue-manager.py           # Smart task queue with priorities
 ├── sync-to-macbook.sh         # Sync to a second machine
 ├── config.example/            # Example configs (safe to commit)
 │   ├── projects.json.example

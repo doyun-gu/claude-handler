@@ -9,7 +9,7 @@ Emitted by `worker-daemon.sh`. Logged to `~/.claude-fleet/daemon-errors.log`.
 | Code | Severity | Description | Auto-fix |
 |------|----------|-------------|----------|
 | D-001 | Critical | Crash restart detected. Daemon restarted within 60s of last heartbeat. 5+ in 5 min = stop. | Auto-stops after 5. Manual restart required. |
-| D-002 | Fatal | Queue manager not found (fleet-brain.py or queue-manager.py). Daemon cannot start. | Reinstall claude-handler. |
+| D-002 | Fatal | Queue manager not found (fleet-brain.py). Daemon cannot start. | Reinstall claude-handler. |
 | D-003 | Fatal | Claude CLI not found or not executable. | Install Claude CLI to `~/.local/bin/claude`. |
 | D-004 | Warning | Stale PID file. Process died without cleanup. | Auto-cleaned. PID file removed. |
 | D-005 | Warning | PID file race condition. File disappeared between existence check and read. | Auto-cleaned. |

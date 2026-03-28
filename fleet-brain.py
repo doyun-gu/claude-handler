@@ -3,7 +3,7 @@
 Fleet Brain — Single intelligent manager for the Fleet Worker system.
 
 Consolidates queue management, PR management, conflict diagnosis, and watchdog
-into one file. Replaces queue-manager.py.
+into one file.
 
 Commands:
   fleet-brain.py next [--just-completed SLUG]     # pick next task

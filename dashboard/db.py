@@ -1014,7 +1014,7 @@ def sync_from_tasks_db() -> int:
     """Sync task status from tasks.db (daemon's source of truth) into fleet.db.
 
     The daemon writes to tasks.db via task-db.py. JSON file updates can
-    silently fail (queue-manager.py errors). This function ensures fleet.db
+    silently fail (fleet-brain.py errors). This function ensures fleet.db
     always reflects the daemon's actual state by reading tasks.db directly.
 
     Uses upsert: tasks missing from fleet.db are inserted, not skipped.

@@ -89,15 +89,15 @@ The crash counter auto-resets after 10 minutes of stable operation. If crashes r
 - **Severity:** critical
 - **Auto-recovery:** no — daemon exits
 - **Symptom:** Daemon fails to start. Error log shows `[D-002]`.
-- **Root cause:** Neither `fleet-brain.py` nor `queue-manager.py` exists in the script directory.
+- **Root cause:** `fleet-brain.py` does not exist in the script directory.
 
 ### Diagnosis
 
 ```bash
-# 1. Check if files exist
-ls -la ~/Developer/claude-handler/fleet-brain.py ~/Developer/claude-handler/queue-manager.py 2>&1
+# 1. Check if file exists
+ls -la ~/Developer/claude-handler/fleet-brain.py 2>&1
 
-# 2. Check if they were renamed or moved
+# 2. Check if it was renamed or moved
 ls ~/Developer/claude-handler/*.py
 
 # 3. Check git status for recently deleted files
@@ -111,8 +111,8 @@ cd ~/Developer/claude-handler && git status
 cd ~/Developer/claude-handler
 mv fleet-brain.py.disabled fleet-brain.py 2>/dev/null
 
-# If files are missing, restore from git:
-git checkout main -- fleet-brain.py queue-manager.py
+# If file is missing, restore from git:
+git checkout main -- fleet-brain.py
 
 # If neither works, ensure the repo is intact:
 git fetch origin && git checkout main
@@ -126,7 +126,7 @@ ls -la ~/Developer/claude-handler/fleet-brain.py && echo "OK"
 
 ### Prevention
 
-Don't rename or delete queue manager files without updating the daemon to handle the change.
+Don't rename or delete fleet-brain.py without updating the daemon to handle the change.
 
 ---
 
@@ -479,7 +479,7 @@ Keep tasks under 30-minute estimated time. Use the backlog for multi-part work.
 - **Severity:** warning
 - **Auto-recovery:** yes — retries next poll cycle
 - **Symptom:** Log shows `[D-020]`. Queue manager script failed.
-- **Root cause:** Python error in fleet-brain.py or queue-manager.py — bad data, missing dependency, or code bug.
+- **Root cause:** Python error in fleet-brain.py — bad data, missing dependency, or code bug.
 
 ### Diagnosis
 
