@@ -1628,7 +1628,7 @@ tr:hover td { background: var(--bg-hover); }
   <div class="section-box collapsed" id="completed-section">
     <div class="section-box-header" onclick="toggleSection('completed-section')">
       <div>
-        <span class="section-label">Completed</span>
+        <span class="section-label">Completed today</span>
         <span class="badge-count" id="completed-count">0</span>
       </div>
       <span class="toggle" id="completed-toggle">[show]</span>
@@ -1951,22 +1951,24 @@ function renderTaskQueue(tasks) {
     return da.localeCompare(db);
   });
   const running = tasks.filter(function(t) { return t.status === 'running'; });
-  const cutoff24h = Date.now() - 24 * 3600 * 1000;
+  // "Today" = midnight local time
+  var now = new Date();
+  var todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const completed = tasks.filter(function(t) {
     if (t.status !== 'completed' && t.status !== 'merged') return false;
     var fin = t.finished_at || t.merged_at;
-    return fin && new Date(fin).getTime() > cutoff24h;
+    return fin && new Date(fin).getTime() > todayMidnight;
   }).sort(function(a, b) {
     var fa = a.finished_at || a.merged_at || '';
     var fb = b.finished_at || b.merged_at || '';
     return fb.localeCompare(fa);
-  }).slice(0, 20);
+  });
   const failed = tasks.filter(function(t) { return t.status === 'failed' || t.status === 'blocked'; });
 
   var columns = [
     { key: 'queued', label: 'Queued', items: queued, dot: 'dot-queued' },
     { key: 'running', label: 'Running', items: running, dot: 'dot-running' },
-    { key: 'completed', label: 'Completed', items: completed, dot: 'dot-completed' },
+    { key: 'completed', label: 'Completed today', items: completed, dot: 'dot-completed' },
     { key: 'failed', label: 'Failed', items: failed, dot: 'dot-failed' },
   ];
 
@@ -2183,12 +2185,13 @@ function renderPipeline(queueData) {
 }
 
 function renderCompleted(tasks) {
-  const cutoff = Date.now() - 24 * 3600 * 1000;
+  var now = new Date();
+  var todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   let recent = tasks.filter(function(t) {
     if (t.status !== 'completed' && t.status !== 'merged' && t.status !== 'failed') return false;
     const fin = t.finished_at || t.merged_at;
     if (!fin) return false;
-    return new Date(fin).getTime() > cutoff;
+    return new Date(fin).getTime() > todayMidnight;
   });
 
   if (activeProjectFilter) {
@@ -2199,7 +2202,7 @@ function renderCompleted(tasks) {
 
   const el = document.getElementById('completed-body');
   if (recent.length === 0) {
-    el.innerHTML = '<div class="empty">No completed tasks' + (activeProjectFilter ? ' for ' + esc(activeProjectFilter) : ' in last 24h') + '</div>';
+    el.innerHTML = '<div class="empty">No completed tasks' + (activeProjectFilter ? ' for ' + esc(activeProjectFilter) : ' today') + '</div>';
     return;
   }
 
@@ -2229,11 +2232,12 @@ function setProjectFilter(project) {
 }
 
 function renderProjectFilters(tasks) {
-  const cutoff = Date.now() - 24 * 3600 * 1000;
+  var now = new Date();
+  var todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const recent = tasks.filter(function(t) {
     if (t.status !== 'completed' && t.status !== 'merged' && t.status !== 'failed') return false;
     const fin = t.finished_at || t.merged_at;
-    return fin && new Date(fin).getTime() > cutoff;
+    return fin && new Date(fin).getTime() > todayMidnight;
   });
 
   const counts = {};

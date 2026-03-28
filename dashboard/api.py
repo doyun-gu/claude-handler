@@ -1273,17 +1273,23 @@ async def submit_action(action: ActionRequest):
     elif action.type == "skip":
         # Archive the review queue item
         archived = _archive_review_item(action.task_slug)
-        if not archived:
-            return {"status": "ok", "message": "No review item found (may already be archived)"}
+
+        # Update task status to "dismissed" in DB and JSON manifest
+        task_file, task_data = _find_task_manifest(action.task_slug)
+        if task_file and task_data:
+            task_data["status"] = "dismissed"
+            task_file.write_text(json.dumps(task_data, indent=2))
+        task_id = action.task_slug
+        update_task(task_id, {"status": "dismissed"})
 
         action_file = REPLY_ACTIONS_DIR / f"{ts}-skip-{action.task_slug}.json"
         action_file.write_text(json.dumps({
             "type": "skip",
             "task_slug": action.task_slug,
-            "archived": archived,
+            "archived": archived or "",
             "created_at": datetime.now().isoformat(),
         }, indent=2))
-        return {"status": "ok", "message": f"Dismissed: {archived}"}
+        return {"status": "ok", "message": f"Dismissed: {action.task_slug}"}
 
     elif action.type == "fix":
         # Dispatch a fix task (creates a reply-action for the daemon)
