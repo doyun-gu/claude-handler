@@ -29,7 +29,7 @@ MAX_PARALLEL=3
 DAEMON_START=$(date +%s)
 CYCLE_COUNT=0
 LAST_ERROR=""
-TASK_TIMEOUT=7200  # 2 hours in seconds
+TASK_TIMEOUT="${TASK_TIMEOUT:-7200}"  # 2 hours in seconds (configurable via env)
 
 # ─── Colors & logging ────────────────────────────────────────────────────────
 
@@ -460,6 +460,82 @@ STATUS_EOF
 clean_task_status() {
     local task_id="$1"
     rm -f "$TASK_STATUS_DIR/${task_id}.status"
+}
+
+# ─── Task timeout enforcement ─────────────────────────────────────────────────
+# Check all running tasks against TASK_TIMEOUT. Kill any that exceed it.
+# Called every poll cycle from the main loop.
+
+check_task_timeouts() {
+    local now status_file task_id pid started_at elapsed
+    now=$(date +%s)
+
+    for status_file in "$TASK_STATUS_DIR"/*.status; do
+        [[ -f "$status_file" ]] || continue
+
+        # Read fields from status file
+        local phase=""
+        phase=$(sed -n 's/^phase=//p' "$status_file" 2>/dev/null) || continue
+        # Only check actively running phases
+        case "$phase" in
+            running|planning|evaluating|rebasing) ;;
+            *) continue ;;
+        esac
+
+        task_id=$(basename "$status_file" .status)
+        pid=$(sed -n 's/^pid=//p' "$status_file" 2>/dev/null) || pid=""
+        started_at=$(sed -n 's/^started_at=//p' "$status_file" 2>/dev/null) || started_at=""
+
+        [[ -z "$started_at" || -z "$pid" ]] && continue
+
+        elapsed=$(( now - started_at ))
+        if (( elapsed > TASK_TIMEOUT )); then
+            log_error "D-090" "Task $task_id timed out after ${elapsed}s (limit: ${TASK_TIMEOUT}s)"
+
+            # Kill the Claude process using existing process group killer
+            kill_task_group "$pid" "$task_id"
+
+            # Find and update the task JSON file
+            local task_file="$TASKS_DIR/${task_id}.json"
+            if [[ -f "$task_file" ]]; then
+                local branch project_path
+                branch=$(sed -n 's/^branch=//p' "$status_file" 2>/dev/null) || branch="unknown"
+                project_path=$(task_field "$task_file" project_path "unknown")
+                update_task_status "$task_file" "failed" "error_message=Task timed out after ${elapsed}s"
+                write_task_status "$task_id" "failed" "Timed out after ${elapsed}s" \
+                    "$(sed -n 's/^project=//p' "$status_file" 2>/dev/null)" "$branch" "$$" "$started_at"
+
+                # Release file locks
+                release_file_locks "$task_id"
+
+                # Notify
+                "$HOME/Developer/claude-handler/fleet-notify.sh" --task-failed "$task_id" 2>/dev/null &
+
+                # Write review-queue item
+                cat > "$REVIEW_DIR/${task_id}-failed.md" << TIMEOUT_EOF
+---
+task_id: ${task_id}
+project: $(sed -n 's/^project=//p' "$status_file" 2>/dev/null)
+type: failed
+priority: high
+created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+---
+
+## Task Timed Out
+
+**Branch:** ${branch}
+**Elapsed:** ${elapsed}s (limit: ${TASK_TIMEOUT}s)
+**Phase:** ${phase}
+
+The task exceeded the timeout limit and was killed.
+Check the log: ~/.claude-fleet/logs/${task_id}.log
+TIMEOUT_EOF
+            fi
+
+            # Clean up status file
+            clean_task_status "$task_id"
+        fi
+    done
 }
 
 # ─── Process group management ─────────────────────────────────────────────────
@@ -1921,6 +1997,7 @@ log "  Claude CLI:    $CLAUDE_BIN"
 log "  Tasks dir:     $TASKS_DIR"
 log "  Review queue:  $REVIEW_DIR"
 log "  Max parallel:  $MAX_PARALLEL"
+log "  Task timeout:  ${TASK_TIMEOUT}s"
 log "  Strategy:      1 task per project, up to $MAX_PARALLEL parallel"
 echo ""
 
@@ -1959,6 +2036,9 @@ while true; do
             warn "Auto-recovery: $recovered"
         fi
     fi
+
+    # ─── Task timeout enforcement ────────────────────────────
+    check_task_timeouts
 
     # ─── Claim tasks from SQLite (atomic, priority-ordered) ──
     # SQLite claim handles: priority ordering, one-per-project,
