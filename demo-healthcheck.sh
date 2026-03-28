@@ -17,7 +17,8 @@ BUG_DB="$FLEET_DIR/bug-db.json"
 WORKER_IP=$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}' || hostname)
 
 # Project-specific settings — override via environment or projects.json
-DPSPICE_DIR="${HEALTHCHECK_PROJECT_DIR:-$HOME/Developer/dynamic-phasors/DPSpice-com}"
+DPSPICE_DIR="${HEALTHCHECK_PROJECT_DIR:-$HOME/Developer/dpspice}"
+PROJECT_NAME="${HEALTHCHECK_PROJECT_NAME:-dpspice}"
 DEBUG_FILE="$DPSPICE_DIR/DEBUG_DETECTOR.md"
 API_PORT="${HEALTHCHECK_API_PORT:-8000}"
 WEB_PORT="${HEALTHCHECK_WEB_PORT:-3001}"
@@ -234,7 +235,7 @@ log_bug() {
         cat > "$FLEET_DIR/review-queue/bug-$slug.md" << REVIEW
 ---
 task_id: bug-$slug
-project: DPSpice-com
+project: $PROJECT_NAME
 type: decision_needed
 priority: $( [[ "$severity" == "critical" ]] && echo "high" || echo "normal" )
 created_at: $timestamp
@@ -394,7 +395,7 @@ maybe_create_worker_task() {
   "id": "$task_id",
   "slug": "auto-bugfix",
   "branch": "worker/auto-bugfix-$(date +%Y%m%d)",
-  "project_name": "DPSpice-com",
+  "project_name": "$PROJECT_NAME",
   "project_path": "$DPSPICE_DIR",
   "subdir": "",
   "dispatched_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
@@ -418,7 +419,7 @@ check_preview_server() {
     for f in "$FLEET_DIR"/tasks/*.json; do
         [[ -f "$f" ]] || continue
         local info
-        info=$(python3 "$HANDLER_DIR/bug-db.py" check-task-branch "$f" "DPSpice-com" 2>/dev/null)
+        info=$(python3 "$HANDLER_DIR/bug-db.py" check-task-branch "$f" "$PROJECT_NAME" 2>/dev/null)
         [[ -n "$info" ]] && latest_branch="$info"
     done
     [[ -z "$latest_branch" ]] && return
@@ -445,7 +446,7 @@ check_preview_server() {
         cat > "$FLEET_DIR/review-queue/preview-ready.md" << PREVEOF
 ---
 task_id: preview-server
-project: DPSpice-com
+project: $PROJECT_NAME
 type: decision_needed
 priority: normal
 created_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
