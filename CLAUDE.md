@@ -10,31 +10,61 @@ claude-handler/
 ├── CHANGELOG.md                       # Release history (Keep a Changelog format)
 ├── VERSION                            # Current version (semver)
 ├── README.md                          # User-facing documentation
-├── release.sh                         # Cut a versioned release (tag + GitHub release)
+│
 ├── install.sh                         # Interactive installer (Commander/Worker role)
 ├── install-launchd.sh                 # Generate LaunchAgent from template
 ├── uninstall.sh                       # Removes symlinks, restores backups
-├── worker-daemon.sh                   # Autonomous Worker daemon
-├── fleet-startup.sh                   # Boot-time service launcher
+├── release.sh                         # Cut a versioned release (tag + GitHub release)
+│
+├── worker-daemon.sh                   # Autonomous Worker daemon (task queue processor)
+├── fleet-brain.py                     # Task scheduling, scoring, PR management
+├── task-db.py                         # SQLite task database (atomic claiming, heartbeats)
+├── file-lock.py                       # Prevents parallel tasks editing same files
+├── bug-db.py                          # Bug tracking database (extracted from healthcheck)
+│
+├── fleet-startup.sh                   # Boot-time service launcher (LaunchAgent)
 ├── fleet-supervisor.sh                # Process supervisor (keeps tmux alive)
-├── demo-healthcheck.sh                # Health checks + log scanning + auto-heal
+├── fleet-backup.sh                    # Fleet state backup
+├── fleet-diagnose.py                  # Diagnostic utility (health, errors, stuck tasks)
 ├── fleet-notify.sh                    # Gmail notifications + reply-to-action
-├── fleet-brain.py                     # Task scheduling + PR management
-├── sync-to-macbook.sh                 # Sync to a second machine
+├── fleet-status-server.sh             # Lightweight status endpoint
+├── health-monitor.py                  # Service health checks + auto-fix
+├── demo-healthcheck.sh                # Project health checks + auto-heal
+│
+├── sync-to-macbook.sh                 # Sync fleet state to second machine
+├── memory-sync.sh                     # Cross-machine memory synchronization
+├── setup-xps.sh                       # Dell XPS worker setup script
+│
+├── dashboard/
+│   ├── api.py                         # FastAPI fleet dashboard backend
+│   ├── db.py                          # SQLite database layer (WAL mode)
+│   ├── index.html                     # Dashboard frontend (Kanban view)
+│   ├── requirements-test.txt          # Test dependencies
+│   └── tests/
+│       ├── conftest.py                # Shared fixtures (temp DB, test client)
+│       ├── test_db.py                 # Database layer tests
+│       └── test_api.py                # API endpoint tests
+│
+├── tests/
+│   ├── conftest.py                    # Shared fixtures
+│   ├── test_task_db.py                # Task database tests
+│   └── test_brain.py                  # Scheduler scoring/logic tests
+│
 ├── config.example/                    # Example configs (safe to commit)
 │   ├── projects.json.example
 │   ├── machine-role.conf.example
 │   └── gmail.conf.example
 ├── launchd/
-│   └── com.fleet.supervisor.plist.template  # LaunchAgent template
-├── dashboard/
-│   ├── api.py                         # FastAPI fleet dashboard backend
-│   └── index.html                     # Dashboard frontend
+│   └── com.fleet.supervisor.plist.template
+├── docs/
+│   ├── ARCHITECTURE.md                # System architecture overview
+│   └── ERROR-CODES.md                 # Daemon error code reference (D-001..D-050)
+│
 ├── global/
 │   ├── CLAUDE.md                      # Core — symlinked to ~/.claude/CLAUDE.md
 │   └── commands/                      # Slash commands (symlinked to ~/.claude/commands/)
 ├── notion/
-│   ├── commands/                      # 10 Notion slash commands
+│   ├── commands/                       # Notion slash commands
 │   ├── templates/                     # Document format definitions
 │   └── schemas/                       # Database schemas
 ├── handoff/                           # Sleep/wake sync between machines
@@ -44,30 +74,58 @@ claude-handler/
 
 ## Key Files
 
+### Core daemon
 | File | Purpose |
 |------|---------|
-| `global/CLAUDE.md` | Core deliverable. Loaded every Claude session. Contains persona, startup protocol, workflow phases, CLAUDE.md generation format. |
-| `install.sh` | Interactive installer — asks Commander/Worker role, creates fleet dirs, copies example configs. |
-| `install-launchd.sh` | Generates LaunchAgent plist from template with current user's $HOME. |
-| `worker-daemon.sh` | Runs on Worker. Watches task queue, runs Claude sessions back-to-back. |
-| `fleet-supervisor.sh` | Managed by launchd. Ensures tmux sessions stay alive. |
-| `fleet-startup.sh` | Runs on boot. Starts all services in tmux. Dynamic PATH detection. |
-| `demo-healthcheck.sh` | Health checks, log scanning, bug DB, auto-heal. Dynamic IP detection. |
-| `fleet-notify.sh` | Gmail notifications with reply-to-action (merge/fix/skip/queue). |
-| `config.example/` | Example configs showing format without real credentials. |
-| `release.sh` | Cut a versioned release — updates CHANGELOG, tags, pushes, creates GitHub release. |
-| `CHANGELOG.md` | Full release history in Keep a Changelog format. |
-| `VERSION` | Single-line semver string (e.g. `0.5.0`). |
+| `worker-daemon.sh` | Main worker loop. Polls task queue, runs Claude sessions, manages process lifecycle. 50+ error codes. |
+| `fleet-brain.py` | Task scheduler — scoring, priority ordering, dependency chains, topic affinity, PR management. |
+| `task-db.py` | SQLite task database — atomic claiming, heartbeat tracking, dependency validation. |
+| `file-lock.py` | Prevents parallel tasks from editing the same files. Keyword-to-path heuristics. |
+| `bug-db.py` | Bug tracking — occurrence counts, escalation thresholds. CLI + importable module. |
+
+### Dashboard
+| File | Purpose |
+|------|---------|
+| `dashboard/api.py` | FastAPI backend — task CRUD, review queue, analytics, machine status. |
+| `dashboard/db.py` | SQLite layer with WAL mode. Schema migrations, parameterized queries. |
+| `dashboard/index.html` | Frontend — Kanban task queue, completed table, project filters, service health. |
+
+### Infrastructure
+| File | Purpose |
+|------|---------|
+| `fleet-startup.sh` | Boot-time launcher. Starts all services in tmux. Dynamic PATH detection. |
+| `fleet-supervisor.sh` | Keepalive daemon. Restarts dead tmux sessions every 30s. |
+| `health-monitor.py` | Service health checks (port probing, HTTP checks) + auto-fix with backoff. |
+| `fleet-diagnose.py` | Diagnostic utility — scans logs, counts errors by type, finds stuck tasks. |
+
+### Setup & release
+| File | Purpose |
+|------|---------|
+| `install.sh` | Interactive installer — Commander/Worker role, fleet dirs, example configs. |
+| `release.sh` | Cut versioned release — updates CHANGELOG, tags, pushes, creates GitHub release. |
+| `global/CLAUDE.md` | Core persona. Symlinked to `~/.claude/CLAUDE.md`. Loaded every session. |
 
 ## Dev Commands
 
 ```bash
+# Setup
 ./install.sh           # Install (interactive — choose Commander/Worker)
 ./install-launchd.sh   # Install LaunchAgent (Worker only)
 ./uninstall.sh         # Uninstall (remove symlinks, restore backups)
+
+# Release
 ./release.sh           # Cut a release (reads VERSION, updates CHANGELOG, tags, pushes)
 ./release.sh --dry-run # Preview release without committing
 ./release.sh 0.6.0     # Release with explicit version override
+
+# Tests
+cd dashboard && python3 -m pytest tests/ -v     # Dashboard DB + API tests
+python3 -m pytest tests/ -v                      # Daemon task-db + brain tests
+
+# Diagnostics
+python3 fleet-diagnose.py                        # Fleet health report
+python3 task-db.py list                           # List all tasks
+python3 task-db.py list --status running          # Filter by status
 ```
 
 ## User Profile
