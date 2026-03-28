@@ -203,7 +203,7 @@ flowchart TB
 | **Task fails** | Claude exit code != 0 | Daemon marks `failed`, writes `{id}-failed.md` to review queue. Auto-retry if retries remaining | D-050 |
 | **Disk full** | Write failures to tasks.db or log files | Daemon logs error, skips task. `fleet-backup.sh` prunes logs >7 days | D-060 |
 | **GitHub unreachable** | `gh pr create` fails | PR creation retried next cycle. Task marked completed (code is on branch) | D-041 |
-| **SQLite corrupt** | task-db.py errors | Falls back to JSON file scanning via queue-manager.py | D-020 |
+| **SQLite corrupt** | task-db.py errors | Falls back to JSON file scanning via fleet-brain.py | D-020 |
 | **Service down** | `demo-healthcheck.sh` port checks (60s interval) | Auto-restart: clears cache, kills port, restarts process. 3 attempts then 5-cycle backoff | — |
 
 ---

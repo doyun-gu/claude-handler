@@ -211,11 +211,8 @@ check_remote_worker() {
 if [[ -f "$SCRIPT_DIR/fleet-brain.py" ]]; then
     QM="$SCRIPT_DIR/fleet-brain.py"
     log "Using fleet-brain.py"
-elif [[ -f "$SCRIPT_DIR/queue-manager.py" ]]; then
-    QM="$SCRIPT_DIR/queue-manager.py"
-    warn "fleet-brain.py not found, falling back to queue-manager.py"
 else
-    log_error "D-002" "Queue manager not found (fleet-brain.py or queue-manager.py)"
+    log_error "D-002" "Queue manager not found (fleet-brain.py)"
     exit 1
 fi
 
@@ -263,11 +260,11 @@ update_task_status() {
     shift 2
     local qm_err task_id
 
-    # Update JSON file via queue-manager
+    # Update JSON file via fleet-brain
     qm_err=$(python3 "$QM" update-status "$task_file" "$new_status" "$@" 2>&1)
     if [[ $? -ne 0 ]]; then
-        log_error "D-020" "Queue manager failed for $task_file -> $new_status: ${qm_err:0:200}"
-        # Fallback: update JSON directly when queue-manager fails
+        log_error "D-020" "Fleet-brain failed for $task_file -> $new_status: ${qm_err:0:200}"
+        # Fallback: update JSON directly when fleet-brain fails
         python3 -c "
 import json, sys
 from datetime import datetime, timezone
