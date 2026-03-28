@@ -46,51 +46,7 @@ init_bug_db() {
 bug_db_upsert() {
     local slug="$1" severity="$2" description="$3" raw_error="${4:-}"
     init_bug_db
-    python3 -c "
-import json, os, time, tempfile
-
-db_path = '$BUG_DB'
-slug = '''$slug'''
-severity = '''$severity'''
-description = '''$(echo "$description" | sed "s/'/\\\\'/g")'''
-raw_error = '''$(echo "$raw_error" | head -30 | sed "s/'/\\\\'/g")'''
-now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
-
-try:
-    with open(db_path) as f:
-        db = json.load(f)
-except (json.JSONDecodeError, FileNotFoundError):
-    db = {'bugs': {}, 'version': 1}
-
-if slug in db['bugs']:
-    db['bugs'][slug]['occurrences'] += 1
-    db['bugs'][slug]['last_seen'] = now
-    db['bugs'][slug]['severity'] = severity
-    db['bugs'][slug]['description'] = description
-    if raw_error:
-        db['bugs'][slug]['last_error'] = raw_error
-else:
-    db['bugs'][slug] = {
-        'severity': severity,
-        'description': description,
-        'first_seen': now,
-        'last_seen': now,
-        'occurrences': 1,
-        'status': 'new',
-        'heal_count': 0,
-        'heal_timestamps': [],
-        'escalated': False,
-        'last_error': raw_error
-    }
-
-# Atomic write
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(db_path))
-with os.fdopen(fd, 'w') as f:
-    json.dump(db, f, indent=2)
-os.rename(tmp, db_path)
-
-print(db['bugs'][slug]['occurrences'])
-" 2>/dev/null
+    echo "$raw_error" | head -30 | python3 "$HANDLER_DIR/bug-db.py" upsert "$BUG_DB" "$slug" "$severity" "$description" 2>/dev/null
 }
 
 # Check if a bug is in cooldown (too many heals recently).
@@ -98,74 +54,14 @@ print(db['bugs'][slug]['occurrences'])
 bug_db_check_cooldown() {
     local slug="$1"
     init_bug_db
-    python3 -c "
-import json, time
-
-db_path = '$BUG_DB'
-slug = '''$slug'''
-now = time.time()
-
-try:
-    with open(db_path) as f:
-        db = json.load(f)
-except (json.JSONDecodeError, FileNotFoundError):
-    exit(1)  # No DB = no cooldown
-
-bug = db.get('bugs', {}).get(slug)
-if not bug:
-    exit(1)  # Unknown bug = no cooldown
-
-# Cooldown: >= 3 heals in last 300s
-recent = [t for t in bug.get('heal_timestamps', []) if now - t < 300]
-if len(recent) >= 3:
-    exit(0)  # Cooldown active
-
-# Escalation: >= 10 total heals
-if bug.get('heal_count', 0) >= 10:
-    exit(0)  # Escalated = cooldown
-
-exit(1)  # OK to heal
-" 2>/dev/null
+    python3 "$HANDLER_DIR/bug-db.py" check-cooldown "$BUG_DB" "$slug" 2>/dev/null
 }
 
 # Record a successful heal for a bug.
 bug_db_record_heal() {
     local slug="$1"
     init_bug_db
-    python3 -c "
-import json, os, time, tempfile
-
-db_path = '$BUG_DB'
-slug = '''$slug'''
-now = time.time()
-
-try:
-    with open(db_path) as f:
-        db = json.load(f)
-except (json.JSONDecodeError, FileNotFoundError):
-    exit(0)
-
-bug = db.get('bugs', {}).get(slug)
-if not bug:
-    exit(0)
-
-bug['heal_count'] = bug.get('heal_count', 0) + 1
-timestamps = bug.get('heal_timestamps', [])
-timestamps.append(now)
-bug['heal_timestamps'] = timestamps[-10:]  # Keep last 10
-
-# Escalate if too many heals
-if bug['heal_count'] >= 10 and not bug.get('escalated', False):
-    bug['escalated'] = True
-    bug['status'] = 'escalated'
-
-db['bugs'][slug] = bug
-
-fd, tmp = tempfile.mkstemp(dir=os.path.dirname(db_path))
-with os.fdopen(fd, 'w') as f:
-    json.dump(db, f, indent=2)
-os.rename(tmp, db_path)
-" 2>/dev/null
+    python3 "$HANDLER_DIR/bug-db.py" record-heal "$BUG_DB" "$slug" 2>/dev/null
 }
 
 # Regenerate DEBUG_DETECTOR.md from bug-db.json (capped at 50 bugs)
@@ -181,57 +77,7 @@ regenerate_debug_md() {
         fi
     fi
 
-    python3 -c "
-import json
-
-db_path = '$BUG_DB'
-out_path = '$DEBUG_FILE'
-
-try:
-    with open(db_path) as f:
-        db = json.load(f)
-except (json.JSONDecodeError, FileNotFoundError):
-    db = {'bugs': {}}
-
-bugs = db.get('bugs', {})
-# Sort by last_seen desc, cap at 50
-sorted_bugs = sorted(bugs.items(), key=lambda x: x[1].get('last_seen', ''), reverse=True)[:50]
-
-status_icons = {'new': '🔴 NEW', 'escalated': '⚠️ ESCALATED', 'healed': '🟢 HEALED', 'fixed': '✅ FIXED'}
-
-lines = []
-lines.append('# DEBUG_DETECTOR — Auto-detected Bugs & Errors')
-lines.append('')
-lines.append('This file is auto-generated from \`bug-db.json\`. Do not edit manually.')
-lines.append('')
-lines.append(f'**Total tracked bugs:** {len(bugs)} | **Showing:** {len(sorted_bugs)}')
-lines.append('')
-lines.append('---')
-lines.append('')
-
-for slug, bug in sorted_bugs:
-    icon = status_icons.get(bug.get('status', 'new'), '🔴 NEW')
-    lines.append(f'### {icon}: {bug.get(\"description\", slug)}')
-    lines.append('')
-    lines.append(f'- **slug:** {slug}')
-    lines.append(f'- **severity:** {bug.get(\"severity\", \"unknown\")}')
-    lines.append(f'- **first_seen:** {bug.get(\"first_seen\", \"?\")}')
-    lines.append(f'- **last_seen:** {bug.get(\"last_seen\", \"?\")}')
-    lines.append(f'- **occurrences:** {bug.get(\"occurrences\", 0)}')
-    lines.append(f'- **heal_count:** {bug.get(\"heal_count\", 0)}')
-    lines.append(f'- **status:** {icon}')
-    error = bug.get('last_error', '')
-    if error:
-        lines.append('')
-        lines.append('\`\`\`')
-        for line in str(error).split('\\n')[:10]:
-            lines.append(line)
-        lines.append('\`\`\`')
-    lines.append('')
-
-with open(out_path, 'w') as f:
-    f.write('\\n'.join(lines))
-" 2>/dev/null
+    python3 "$HANDLER_DIR/bug-db.py" regenerate-md "$BUG_DB" "$DEBUG_FILE" 2>/dev/null
 }
 
 # ── Auto-heal: fix known bugs from knowledge base ──────────
@@ -515,16 +361,8 @@ maybe_create_worker_task() {
     [[ ! -f "$BUG_DB" ]] && return
 
     local counts
-    counts=$(python3 -c "
-import json
-try:
-    db = json.load(open('$BUG_DB'))
-    bugs = db.get('bugs', {})
-    critical = sum(1 for b in bugs.values() if b.get('severity') == 'critical' and b.get('status') == 'new')
-    new = sum(1 for b in bugs.values() if b.get('status') == 'new')
-    print(f'{new} {critical}')
-except: print('0 0')
-" 2>/dev/null)
+    counts=$(python3 "$HANDLER_DIR/bug-db.py" count-bugs "$BUG_DB" 2>/dev/null)
+    counts=${counts:-"0 0"}
 
     local new_count critical_count
     new_count=$(echo "$counts" | awk '{print $1}')
@@ -544,35 +382,10 @@ except: print('0 0')
         # Skip if an auto-bugfix task completed in the last 30 minutes (prevents infinite loop
         # when worker finds no NEW bugs but bug-db.json still has status=new)
         local recent_completed
-        recent_completed=$(python3 -c "
-import json, glob, time
-now = time.time()
-for f in sorted(glob.glob('$FLEET_DIR/tasks/auto-*-bugfix.json'), reverse=True)[:10]:
-    try:
-        d = json.load(open(f))
-        if d.get('status') == 'completed' and d.get('finished_at'):
-            import datetime
-            fin = datetime.datetime.fromisoformat(d['finished_at'].replace('Z','+00:00')).timestamp()
-            if now - fin < 1800:
-                print('RECENT')
-                break
-    except: pass
-" 2>/dev/null)
+        recent_completed=$(python3 "$HANDLER_DIR/bug-db.py" check-recent-completed "$FLEET_DIR/tasks" 2>/dev/null)
         if [[ "$recent_completed" == "RECENT" ]]; then
             # A recent bugfix task found nothing to fix — mark all 'new' bugs as fixed
-            python3 -c "
-import json
-f = '$BUG_DB'
-db = json.load(open(f))
-changed = False
-for name, bug in db.get('bugs', {}).items():
-    if bug.get('status') == 'new':
-        bug['status'] = 'fixed'
-        bug['fixed_by'] = 'auto-cleared: worker found no NEW bugs'
-        changed = True
-if changed:
-    json.dump(db, open(f, 'w'), indent=2)
-" 2>/dev/null
+            python3 "$HANDLER_DIR/bug-db.py" mark-all-fixed "$BUG_DB" 2>/dev/null
             return
         fi
 
@@ -605,12 +418,7 @@ check_preview_server() {
     for f in "$FLEET_DIR"/tasks/*.json; do
         [[ -f "$f" ]] || continue
         local info
-        info=$(python3 -c "
-import json
-d = json.load(open('$f'))
-if d.get('status') == 'completed' and d.get('project_name') == 'DPSpice-com':
-    print(d.get('branch',''))
-" 2>/dev/null)
+        info=$(python3 "$HANDLER_DIR/bug-db.py" check-task-branch "$f" "DPSpice-com" 2>/dev/null)
         [[ -n "$info" ]] && latest_branch="$info"
     done
     [[ -z "$latest_branch" ]] && return
