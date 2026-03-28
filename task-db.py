@@ -26,13 +26,14 @@ import sys
 import time
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from typing import Any, Optional
 
 FLEET_DIR = Path.home() / ".claude-fleet"
 DB_PATH = FLEET_DIR / "tasks.db"
 TASKS_DIR = FLEET_DIR / "tasks"
 
 
-def get_db(readonly=False):
+def get_db(readonly: bool = False) -> sqlite3.Connection:
     """Get a database connection with WAL mode and proper settings."""
     db = sqlite3.connect(
         str(DB_PATH),
@@ -47,7 +48,7 @@ def get_db(readonly=False):
     return db
 
 
-def init_db():
+def init_db() -> None:
     """Create the schema if it doesn't exist."""
     db = get_db()
     db.executescript("""
@@ -135,7 +136,7 @@ def init_db():
     print(f"Database initialized at {DB_PATH}", file=sys.stderr)
 
 
-def import_json():
+def import_json() -> None:
     """Import existing JSON task manifests into SQLite."""
     if not TASKS_DIR.exists():
         print("No tasks directory found.", file=sys.stderr)
@@ -224,7 +225,7 @@ def import_json():
     print(f"Imported {imported} tasks, skipped {skipped} existing.", file=sys.stderr)
 
 
-def claim_task(blocked_projects=None):
+def claim_task(blocked_projects: Optional[set[str]] = None) -> Optional[dict[str, Any]]:
     """
     Atomically claim the next queued task.
     Returns task dict or None if no tasks available.
@@ -315,7 +316,7 @@ def claim_task(blocked_projects=None):
         raise e
 
 
-def update_status(task_id, status, **kwargs):
+def update_status(task_id: str, status: str, **kwargs: Any) -> None:
     """Update task status with optional extra fields."""
     db = get_db()
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -340,7 +341,7 @@ def update_status(task_id, status, **kwargs):
     db.close()
 
 
-def record_heartbeat(task_id, log_size=0, pid_alive=True):
+def record_heartbeat(task_id: str, log_size: int = 0, pid_alive: bool = True) -> None:
     """Record a heartbeat for a running task."""
     db = get_db()
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -359,7 +360,7 @@ def record_heartbeat(task_id, log_size=0, pid_alive=True):
     db.close()
 
 
-def _is_project_process_alive(project_name):
+def _is_project_process_alive(project_name: str) -> bool:
     """Check if a project's PID file points to a live process."""
     pidfile = Path("/tmp/fleet-running") / f"{project_name}.pid"
     if not pidfile.exists():
@@ -372,7 +373,7 @@ def _is_project_process_alive(project_name):
         return False
 
 
-def find_stuck(minutes=10):
+def find_stuck(minutes: int = 10) -> list[dict[str, Any]]:
     """
     Find tasks that appear stuck.
     A task is stuck if:
@@ -445,7 +446,7 @@ def find_stuck(minutes=10):
     return stuck
 
 
-def recover_stuck(minutes=10):
+def recover_stuck(minutes: int = 10) -> int:
     """Find stuck tasks and mark them as failed. Returns count recovered."""
     stuck = find_stuck(minutes)
     if not stuck:
@@ -463,7 +464,7 @@ def recover_stuck(minutes=10):
     return count
 
 
-def get_cost_today():
+def get_cost_today() -> float:
     """Get total cost for today's tasks."""
     db = get_db(readonly=True)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -479,7 +480,7 @@ def get_cost_today():
     return row["total"] if row else 0.0
 
 
-def get_task(task_id):
+def get_task(task_id: str) -> Optional[dict[str, Any]]:
     """Get a single task by ID."""
     db = get_db(readonly=True)
     task = db.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
@@ -487,7 +488,7 @@ def get_task(task_id):
     return dict(task) if task else None
 
 
-def list_tasks(status=None):
+def list_tasks(status: Optional[str] = None) -> list[dict[str, Any]]:
     """List tasks, optionally filtered by status."""
     db = get_db(readonly=True)
     if status:
@@ -503,7 +504,7 @@ def list_tasks(status=None):
     return [dict(t) for t in tasks]
 
 
-def get_stats():
+def get_stats() -> dict[str, Any]:
     """Get summary statistics."""
     db = get_db(readonly=True)
     counts = {}
@@ -529,7 +530,7 @@ def get_stats():
     }
 
 
-def count_by_status(status):
+def count_by_status(status: str) -> int:
     """Count tasks with a given status."""
     db = get_db(readonly=True)
     row = db.execute(
@@ -539,7 +540,7 @@ def count_by_status(status):
     return row["cnt"] if row else 0
 
 
-def claim_next_for_daemon(blocked_projects=None, max_parallel=3):
+def claim_next_for_daemon(blocked_projects: Optional[set[str]] = None, max_parallel: int = 3) -> Optional[dict[str, Any]]:
     """
     Claim the next task for the daemon, respecting:
     - Priority ordering (highest first)
@@ -649,7 +650,7 @@ def claim_next_for_daemon(blocked_projects=None, max_parallel=3):
         raise e
 
 
-def add_from_json(json_path):
+def add_from_json(json_path: str) -> None:
     """Add a task from a JSON manifest file."""
     d = json.load(open(json_path))
     task_id = d.get("id", Path(json_path).stem)
