@@ -30,6 +30,7 @@
   --merged: #8b5cf6;
   --merged-bg: #2e1065;
   --blocked: #f59e0b;
+  --scheduled: #8B5CF6;
   --blocked-bg: #78350f;
   --radius: 8px;
   --radius-sm: 6px;
@@ -195,7 +196,7 @@ body {
 /* ── Stat Cards Row ───────────────────── */
 .stat-cards {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
 }
 .stat-card {
@@ -943,7 +944,7 @@ tr:hover td { background: var(--bg-hover); }
 /* ── Task Queue Kanban ────────────────── */
 .task-queue {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 12px;
 }
 .tq-column {
@@ -984,6 +985,7 @@ tr:hover td { background: var(--bg-hover); }
 .dot-running { background: var(--running); animation: pulse 2s infinite; }
 .dot-completed { background: var(--completed); }
 .dot-failed { background: var(--failed); }
+.dot-scheduled { background: var(--scheduled); }
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
@@ -1028,6 +1030,11 @@ tr:hover td { background: var(--bg-hover); }
 .tq-card.status-completed, .tq-card.status-merged {
   background: var(--completed-bg);
   border-color: rgba(34, 197, 94, 0.2);
+}
+.tq-card.status-scheduled {
+  background: rgba(139, 92, 246, 0.08);
+  border-color: rgba(139, 92, 246, 0.25);
+  opacity: 0.8;
 }
 .tq-card.status-failed {
   background: var(--failed-bg);
@@ -1964,10 +1971,16 @@ function renderTaskQueue(tasks) {
     return fb.localeCompare(fa);
   });
   const failed = tasks.filter(function(t) { return t.status === 'failed' || t.status === 'blocked'; });
+  const scheduled = tasks.filter(function(t) { return t.status === 'scheduled'; }).sort(function(a, b) {
+    var pa = a.priority || 0;
+    var pb = b.priority || 0;
+    return pb - pa;
+  });
 
   var columns = [
     { key: 'queued', label: 'Queued', items: queued, dot: 'dot-queued' },
     { key: 'running', label: 'Running', items: running, dot: 'dot-running' },
+    { key: 'scheduled', label: 'Scheduled', items: scheduled, dot: 'dot-scheduled' },
     { key: 'completed', label: 'Completed today', items: completed, dot: 'dot-completed' },
     { key: 'failed', label: 'Failed', items: failed, dot: 'dot-failed' },
   ];
