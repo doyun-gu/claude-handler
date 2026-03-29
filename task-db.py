@@ -446,20 +446,40 @@ def find_stuck(minutes: int = 10) -> list[dict[str, Any]]:
     return stuck
 
 
-def recover_stuck(minutes: int = 10) -> int:
-    """Find stuck tasks and mark them as failed. Returns count recovered."""
+def recover_stuck(minutes: int = 20) -> int:
+    """Find stuck tasks and mark them as failed. Returns count recovered.
+
+    Before failing a task, checks if it actually completed (has a log summary
+    or PR). If so, marks as completed instead of failed.
+    """
     stuck = find_stuck(minutes)
     if not stuck:
         return 0
     db = get_db()
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    logs_dir = Path.home() / ".claude-fleet" / "logs"
+    count = 0
     for s in stuck:
-        db.execute("""
-            UPDATE tasks SET status = 'failed', finished_at = ?, updated_at = ?,
-            error_message = ? WHERE id = ? AND status = 'running'
-        """, (now, now, f"Auto-recovered: {s['reason']}", s["id"]))
+        # Check if the task actually completed (summary or PR exists)
+        summary_file = logs_dir / f"{s['id']}.summary.md"
+        actually_completed = False
+        if summary_file.exists():
+            summary = summary_file.read_text()
+            if "PR:" in summary or "pull/" in summary or "Task complete" in summary:
+                actually_completed = True
+
+        if actually_completed:
+            db.execute("""
+                UPDATE tasks SET status = 'completed', finished_at = ?, updated_at = ?,
+                error_message = NULL WHERE id = ? AND status = 'running'
+            """, (now, now, s["id"]))
+        else:
+            db.execute("""
+                UPDATE tasks SET status = 'failed', finished_at = ?, updated_at = ?,
+                error_message = ? WHERE id = ? AND status = 'running'
+            """, (now, now, f"Auto-recovered: {s['reason']}", s["id"]))
+        count += 1
     db.commit()
-    count = len(stuck)
     db.close()
     return count
 

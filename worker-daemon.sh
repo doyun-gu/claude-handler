@@ -2028,7 +2028,7 @@ while true; do
 
     # ─── Stuck task auto-recovery (every ~5 min) ─────────────
     if (( CYCLE_COUNT % 30 == 0 )) && [[ -f "$TASK_DB" ]]; then
-        recovered=$(python3 "$TASK_DB" recover-stuck --minutes 10 2>/dev/null) || recovered=""
+        recovered=$(python3 "$TASK_DB" recover-stuck --minutes 20 2>/dev/null) || recovered=""
         if [[ -n "$recovered" && "$recovered" != "Recovered 0 stuck tasks." ]]; then
             warn "Auto-recovery: $recovered"
         fi
