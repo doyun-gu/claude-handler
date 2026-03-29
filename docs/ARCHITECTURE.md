@@ -48,9 +48,6 @@ flowchart TB
     PR1 -->|GitHub| Review
     PR2 -->|GitHub| Review
 
-    style Commander fill:#1a1a2e,stroke:#e0e0e0,color:#e0e0e0
-    style Controller fill:#0f3460,stroke:#e0e0e0,color:#e0e0e0
-    style Remote fill:#16213e,stroke:#e0e0e0,color:#e0e0e0
 ```
 
 **Why star, not mesh:** One queue, one DB, one source of truth. Adding a machine = one SSH config line. The bottleneck is Claude API throughput, not local orchestration.
@@ -130,10 +127,6 @@ flowchart LR
     Primary -->|"rsync daily"| Backup
     DispLog -->|"rsync"| Backup
 
-    style Primary fill:#1a1a2e,stroke:#e0e0e0,color:#e0e0e0
-    style JSON fill:#16213e,stroke:#e0e0e0,color:#e0e0e0
-    style Dashboard fill:#0f3460,stroke:#e0e0e0,color:#e0e0e0
-    style Backup fill:#1a1a2e,stroke:#e0e0e0,color:#e0e0e0
 ```
 
 | Store | Location | Writer | Reader | Purpose |
@@ -175,9 +168,6 @@ flowchart TB
     MiniCtrl -->|"API key"| Anthropic
     DellWorker -->|"API key"| Anthropic
 
-    style Trust1 fill:#1a1a2e,stroke:#e0e0e0,color:#e0e0e0
-    style Trust2 fill:#0f3460,stroke:#e0e0e0,color:#e0e0e0
-    style External fill:#16213e,stroke:#e0e0e0,color:#e0e0e0
 ```
 
 | Layer | Mechanism |
@@ -233,10 +223,6 @@ flowchart TB
     MergeCheck -->|yes| AutoMerge["gh pr merge --squash"]
     MergeCheck -->|no| ReviewQueue["review-queue/\n(with eval metadata)"]
 
-    style Claim fill:#1a1a2e,stroke:#e0e0e0,color:#e0e0e0
-    style Generator fill:#0f3460,stroke:#e0e0e0,color:#e0e0e0
-    style Evaluator fill:#16213e,stroke:#e0e0e0,color:#e0e0e0
-    style Planner fill:#16213e,stroke:#e0e0e0,color:#e0e0e0
 ```
 
 | Stage | Turns | Purpose | Output |
@@ -262,9 +248,6 @@ flowchart LR
     TaskBudget -->|yes| Continue["Continue execution"]
     TaskBudget -->|exceeded| Finish["Complete current turn\nthen stop"]
 
-    style Claim fill:#1a1a2e,stroke:#e0e0e0,color:#e0e0e0
-    style Run fill:#0f3460,stroke:#e0e0e0,color:#e0e0e0
-    style Pause fill:#16213e,stroke:#e0e0e0,color:#e0e0e0
 ```
 
 | Control | Default | Scope |
@@ -339,8 +322,6 @@ flowchart TD
         F2 --> D2["Task 3 branches from C"]
     end
 
-    style Before fill:#2d1a1a,stroke:#e0e0e0,color:#e0e0e0
-    style After fill:#1a2d1a,stroke:#e0e0e0,color:#e0e0e0
 ```
 
 ### Merge Pipeline
