@@ -276,3 +276,113 @@ flowchart LR
 | Evaluator overhead | +10-15 min per round | Added when `evaluate: auto` |
 
 **Estimation algorithm** (fleet-brain.py): Completed tasks with timestamps → weighted average by topic affinity (0.2) + same project (0.3) + base (0.5). Combined tasks scale by sub-task count with diminishing returns (`count * 0.7`, capped at 3x).
+
+---
+
+## Branch Strategy & Merge Pipeline
+
+Workers create PRs on `worker/*` branches. When multiple PRs merge sequentially, the base becomes stale, causing cascade conflicts. The daemon prevents this with a fresh-main-per-task strategy.
+
+### Git Flow Per Task
+
+```mermaid
+sequenceDiagram
+    participant D as Daemon
+    participant G as Git (local repo)
+    participant O as origin/main (GitHub)
+    participant C as Claude Session
+    participant GH as GitHub PR
+
+    Note over D,O: Task Start
+    D->>G: git checkout main
+    D->>G: git clean -fd, abort stuck rebase/merge
+    D->>O: git fetch origin
+    D->>G: git reset --hard origin/main
+    Note over G: Now at latest main commit
+    D->>G: git branch -D worker/task (delete stale)
+    D->>G: git checkout -b worker/task origin/main
+    Note over G: Fresh branch from latest main
+
+    D->>C: Launch Claude (autonomous)
+    C->>G: commits on worker/task
+    C->>O: git push origin worker/task
+    C->>GH: gh pr create --base main
+
+    Note over D,O: Task End
+    D->>G: rebase_before_pr (onto latest origin/main)
+    D->>O: git push --force-with-lease
+    D->>G: git checkout main
+    D->>G: git reset --hard origin/main
+    Note over G: Back to latest main, ready for next task
+```
+
+### Why Fresh Main Per Task
+
+The daemon runs tasks sequentially per project (1 task per project at a time). Between tasks, PRs are merged by the scheduler. If the daemon doesn't fetch latest main before starting the next task, the new branch is based on stale main:
+
+```mermaid
+flowchart TD
+    subgraph Before["Before: Stale Base Problem"]
+        A1["main @ commit A"] --> B1["Task 1 branches from A"]
+        A1 --> C1["Task 2 branches from A"]
+        A1 --> D1["Task 3 branches from A"]
+        B1 -->|"merge"| E1["main @ commit B"]
+        C1 -.->|"CONFLICT"| E1
+        D1 -.->|"CONFLICT"| E1
+    end
+
+    subgraph After["After: Fresh Base Per Task"]
+        A2["main @ commit A"] --> B2["Task 1 branches from A"]
+        B2 -->|"merge"| E2["main @ commit B"]
+        E2 --> C2["Task 2 branches from B"]
+        C2 -->|"merge"| F2["main @ commit C"]
+        F2 --> D2["Task 3 branches from C"]
+    end
+
+    style Before fill:#2d1a1a,stroke:#e0e0e0,color:#e0e0e0
+    style After fill:#1a2d1a,stroke:#e0e0e0,color:#e0e0e0
+```
+
+### Merge Pipeline
+
+For batch merging multiple open PRs, `merge-worker-prs.sh` handles the cascade automatically:
+
+```mermaid
+flowchart TD
+    Start["List open worker/* PRs\n(oldest first)"] --> Loop{"More PRs?"}
+    Loop -->|yes| Check{"Mergeable?"}
+    Check -->|"MERGEABLE"| Merge["gh pr merge --squash\n--delete-branch"]
+    Check -->|"CONFLICTING"| Rebase["GitHub API:\nPUT /pulls/{id}/update-branch\n(rebase method)"]
+    Check -->|"UNKNOWN"| Wait["Wait 5s, retry merge"]
+    Rebase --> RetryMerge["Wait 3s, then merge"]
+    RetryMerge -->|"success"| Count["merged++"]
+    RetryMerge -->|"fail"| Skip["skipped++\n(needs manual fix)"]
+    Merge --> Count
+    Wait -->|"success"| Count
+    Wait -->|"fail"| Skip
+    Count --> Pause["sleep 2s\n(let GitHub update main)"]
+    Skip --> Pause
+    Pause --> Loop
+    Loop -->|no| Report["Report:\nX merged, Y failed, Z skipped"]
+```
+
+### Usage
+
+```bash
+# Merge all open worker PRs
+./merge-worker-prs.sh
+
+# Preview without merging
+./merge-worker-prs.sh --dry-run
+
+# Specific repo
+./merge-worker-prs.sh --repo owner/repo
+```
+
+### Automated Scheduling
+
+The plan scheduler (`plan-scheduler.py`, runs every 15 min) also handles PR merging:
+- After each task completes, checks for open PRs and merges via `gh`
+- Handles rebase conflicts by fetching branch, rebasing, force-pushing
+- Post-phase smoke tests catch integration issues after batch merges
+- Nightly audit (3am) runs full integration check: build, types, API endpoints
