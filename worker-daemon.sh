@@ -1403,42 +1403,33 @@ except: pass
     update_task_status "$task_file" "running"
     write_task_status "$task_id" "starting" "Preparing git and environment" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
 
-    # Prepare git
+    # Prepare git -- always start from fresh origin/main
     cd "$project_path" || { err "cd failed: $project_path"; return 1; }
-    git fetch origin 2>/dev/null || true
 
-    # Clean any dirty state from previous tasks
+    # Step 1: Return to main and clean all state
+    git checkout main 2>/dev/null || git checkout "$base_branch" 2>/dev/null || true
     git checkout -- . 2>/dev/null || true
     git clean -fd 2>/dev/null || true
+    git rebase --abort 2>/dev/null || true
+    git merge --abort 2>/dev/null || true
 
-    if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-        # Branch exists locally -- reset it to base and checkout
-        git checkout "$branch" 2>/dev/null || true
-        git reset --hard "origin/$base_branch" 2>/dev/null || git reset --hard origin/main 2>/dev/null || true
-    elif git show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
-        # Branch exists on remote but not locally -- delete remote ref and create fresh
-        git branch -D "$branch" 2>/dev/null || true
-        git checkout -b "$branch" "origin/$base_branch" 2>/dev/null ||
-            git checkout -b "$branch" origin/main 2>/dev/null ||
-            git checkout -b "$branch" main 2>/dev/null ||
-            {
-                log_error "D-012" "Cannot create or checkout branch $branch (task: $task_id)"
-                update_task_status "$task_file" "failed" "error_message=Cannot create branch $branch"
-                write_task_status "$task_id" "failed" "Cannot create branch $branch" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
-                return 1
-            }
-    else
-        # Fresh branch -- create from base
-        git checkout -b "$branch" "origin/$base_branch" 2>/dev/null ||
-            git checkout -b "$branch" "$base_branch" 2>/dev/null ||
-            git checkout -b "$branch" origin/main 2>/dev/null ||
-            git checkout -b "$branch" main 2>/dev/null ||
-            {
-                log_error "D-012" "Cannot create or checkout branch $branch (task: $task_id)"
-                update_task_status "$task_file" "failed" "error_message=Cannot create branch $branch"
-                write_task_status "$task_id" "failed" "Cannot create branch $branch" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
-                return 1
-            }
+    # Step 2: Fetch latest and fast-forward main to origin
+    git fetch origin 2>/dev/null || true
+    git reset --hard "origin/$base_branch" 2>/dev/null || git reset --hard origin/main 2>/dev/null || true
+
+    log "[git] Starting from fresh origin/$base_branch ($(git rev-parse --short HEAD 2>/dev/null))"
+
+    # Step 3: Delete any stale local branch with the same name
+    git branch -D "$branch" 2>/dev/null || true
+
+    # Step 4: Create fresh branch from latest origin/main
+    if ! git checkout -b "$branch" "origin/$base_branch" 2>/dev/null; then
+        if ! git checkout -b "$branch" origin/main 2>/dev/null; then
+            log_error "D-012" "Cannot create branch $branch from origin/$base_branch (task: $task_id)"
+            update_task_status "$task_file" "failed" "error_message=Cannot create branch $branch"
+            write_task_status "$task_id" "failed" "Cannot create branch $branch" "$(basename "$project_path")" "$branch" "$$" "$task_started_at"
+            return 1
+        fi
     fi
     git submodule update --init 2>/dev/null || true
 
@@ -1915,6 +1906,14 @@ REVIEW_EOF
 
     # ─── Release file locks (Layer 1) ────────────────────────
     release_file_locks "$task_id"
+
+    # ─── Return to main (prevents stale branch for next task) ──
+    if [[ -d "$project_path" ]]; then
+        cd "$project_path" 2>/dev/null || true
+        git checkout main 2>/dev/null || git checkout "$base_branch" 2>/dev/null || true
+        git reset --hard "origin/$base_branch" 2>/dev/null || true
+        log "[cleanup] Returned $project_path to $base_branch"
+    fi
 }
 
 # ─── Async task launcher ─────────────────────────────────────────────────────
