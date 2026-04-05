@@ -336,7 +336,7 @@ scan_web_logs() {
 smoke_test_api() {
     # IEEE 14-bus power flow should converge
     local pf_result
-    pf_result=$(curl -s --connect-timeout 5 http://localhost:$API_PORT/api/ieee/14bus/power-flow 2>/dev/null)
+    pf_result=$(curl -sL --connect-timeout 5 http://localhost:$API_PORT/api/v1/ieee/14bus/power-flow 2>/dev/null)
     local converged
     converged=$(echo "$pf_result" | python3 -c "import json,sys; print(json.load(sys.stdin).get('converged', False))" 2>/dev/null)
 
@@ -347,7 +347,7 @@ smoke_test_api() {
 
     # IEEE 9-bus should also work
     local pf9
-    pf9=$(curl -s --connect-timeout 5 http://localhost:$API_PORT/api/ieee/9bus/power-flow 2>/dev/null)
+    pf9=$(curl -sL --connect-timeout 5 http://localhost:$API_PORT/api/v1/ieee/9bus/power-flow 2>/dev/null)
     local converged9
     converged9=$(echo "$pf9" | python3 -c "import json,sys; print(json.load(sys.stdin).get('converged', False))" 2>/dev/null)
 
