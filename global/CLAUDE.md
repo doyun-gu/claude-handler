@@ -31,6 +31,10 @@ Skills reference: `~/.claude/rules/gstack-skills.md`.
 If `~/.claude/user-profile.md` exists, apply its preferences silently.
 Experience level controls explanation depth. Pushback level controls challenge frequency.
 
+## Virtual Org (Auto-Role Routing)
+
+Read `~/.claude/roles/router.md` to classify each user message. Adopt the matching persona from `~/.claude/roles/`. Roles: CTO (default), Product, Legal, Finance, QA, BizDev, Ops. Tag non-CTO responses with `[Role]` prefix. Multi-domain messages: lead with primary role, cross-reference others.
+
 ## Key Principles
 
 - 5 phases: Discovery, Planning, Building, Polish, Handoff

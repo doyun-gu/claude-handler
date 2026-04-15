@@ -63,6 +63,34 @@ for cmd_file in "$SCRIPT_DIR"/global/commands/*.md; do
 done
 echo ""
 
+# ── Role personas ──────────────────────────────────
+
+ROLES_DIR="$CLAUDE_DIR/roles"
+
+if [ -d "$SCRIPT_DIR/global/roles" ]; then
+    echo "Role personas:"
+    mkdir -p "$ROLES_DIR"
+    for role_file in "$SCRIPT_DIR"/global/roles/*.md; do
+        role="$(basename "$role_file")"
+        symlink_file "$role_file" "$ROLES_DIR/$role" "roles/$role"
+    done
+    echo ""
+fi
+
+# ── Rules ──────────────────────────────────────────
+
+RULES_DIR="$CLAUDE_DIR/rules"
+
+if [ -d "$SCRIPT_DIR/global/rules" ]; then
+    echo "Rules:"
+    mkdir -p "$RULES_DIR"
+    for rule_file in "$SCRIPT_DIR"/global/rules/*.md; do
+        rule="$(basename "$rule_file")"
+        symlink_file "$rule_file" "$RULES_DIR/$rule" "rules/$rule"
+    done
+    echo ""
+fi
+
 # ── Notion commands (optional) ──────────────────────
 
 if [ -d "$SCRIPT_DIR/notion/commands" ]; then
