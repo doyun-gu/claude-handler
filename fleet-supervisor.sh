@@ -80,11 +80,25 @@ WORKER_IDLE_RESTART_SECS="${WORKER_IDLE_RESTART_SECS:-86400}"  # 24h
 idle_restart_worker_daemon() {
     tmux has-session -t worker-daemon 2>/dev/null || return 0
 
-    local pane_pid uptime
+    local pane_pid
     pane_pid=$(tmux list-panes -t worker-daemon -F '#{pane_pid}' 2>/dev/null | head -1)
     [[ -n "$pane_pid" ]] || return 0
-    uptime=$(ps -o etimes= -p "$pane_pid" 2>/dev/null | tr -d ' ')
-    [[ "$uptime" =~ ^[0-9]+$ ]] || return 0
+
+    # Parse ps etime — portable across macOS and Linux.
+    # Formats: MM:SS | HH:MM:SS | DD-HH:MM:SS
+    local etime d=0 h=0 m=0 s=0 uptime
+    etime=$(ps -o etime= -p "$pane_pid" 2>/dev/null | tr -d ' ')
+    [[ -n "$etime" ]] || return 0
+    if [[ "$etime" == *-* ]]; then
+        d="${etime%%-*}"
+        etime="${etime#*-}"
+    fi
+    case "$etime" in
+        *:*:*) IFS=: read -r h m s <<<"$etime" ;;
+        *:*)   IFS=: read -r m s <<<"$etime" ;;
+        *) return 0 ;;
+    esac
+    uptime=$(( 10#$d * 86400 + 10#$h * 3600 + 10#$m * 60 + 10#$s ))
     (( uptime > WORKER_IDLE_RESTART_SECS )) || return 0
 
     # Gate on task-db: only restart when fully idle
