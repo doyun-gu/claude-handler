@@ -68,6 +68,57 @@ check_and_restart() {
     fi
 }
 
+# ─── Heartbeat silence alerting ───────────────────────────────────────────────
+# The worker-daemon writes ~/.claude-fleet/daemon-heartbeat every cycle with
+# `timestamp=<epoch>`. If we don't see a fresh timestamp within the threshold
+# below, the daemon is stuck, crashed silently, or its tmux session is wedged.
+# Send one notification per silence incident; clear the flag when heartbeat
+# resumes. Anti-spam is important — cron-style polling without state flapping.
+HEARTBEAT_FILE="$HOME/.claude-fleet/daemon-heartbeat"
+HEARTBEAT_SILENCE_ALERT_SECS="${HEARTBEAT_SILENCE_ALERT_SECS:-600}"  # 10 min
+HEARTBEAT_ALERT_FLAG="$HOME/.claude-fleet/.heartbeat-alert-sent"
+NOTIFY_SCRIPT="$HANDLER/fleet-notify.sh"
+
+check_heartbeat_silence() {
+    # If heartbeat file is missing entirely, the daemon never wrote one —
+    # likely still starting up. Skip silently. The daemon writes one per cycle
+    # so this clears up within a minute of first boot.
+    [[ -f "$HEARTBEAT_FILE" ]] || return 0
+
+    local last_ts now silence_secs
+    last_ts=$(sed -n 's/.*timestamp=\([0-9]*\).*/\1/p' "$HEARTBEAT_FILE" 2>/dev/null)
+    [[ -n "$last_ts" && "$last_ts" =~ ^[0-9]+$ ]] || return 0
+    now=$(date +%s)
+    silence_secs=$(( now - last_ts ))
+
+    if (( silence_secs > HEARTBEAT_SILENCE_ALERT_SECS )); then
+        # Already alerted for this incident? Don't spam.
+        [[ -f "$HEARTBEAT_ALERT_FLAG" ]] && return 0
+
+        local minutes=$(( silence_secs / 60 ))
+        log "ALERT: worker-daemon heartbeat silent for ${minutes}m — notifying"
+        if [[ -x "$NOTIFY_SCRIPT" ]]; then
+            "$NOTIFY_SCRIPT" \
+                "CRITICAL: worker-daemon heartbeat silent ${minutes}m" \
+                "<p style='font-size:13px;color:#B91C1C;'>Worker daemon on Mac Mini hasn't written a heartbeat in <b>${minutes} minutes</b>.</p><p style='font-size:13px;color:#475569;'>Last heartbeat: $(date -r "$last_ts" '+%Y-%m-%d %H:%M:%S' 2>/dev/null).</p><p style='font-size:13px;color:#475569;'>SSH to mac-mini and check: <code>tmux attach -t worker-daemon</code></p>" \
+                >>"$LOG_FILE" 2>&1 || true
+        fi
+        date +%s > "$HEARTBEAT_ALERT_FLAG"
+    else
+        # Healthy — clear any stale alert flag so next incident can fire.
+        if [[ -f "$HEARTBEAT_ALERT_FLAG" ]]; then
+            log "Worker-daemon heartbeat recovered (silence was < ${HEARTBEAT_SILENCE_ALERT_SECS}s)"
+            rm -f "$HEARTBEAT_ALERT_FLAG"
+            if [[ -x "$NOTIFY_SCRIPT" ]]; then
+                "$NOTIFY_SCRIPT" \
+                    "CRITICAL: worker-daemon recovered" \
+                    "<p style='font-size:13px;color:#047857;'>Worker daemon heartbeat has resumed.</p>" \
+                    >>"$LOG_FILE" 2>&1 || true
+            fi
+        fi
+    fi
+}
+
 log "Fleet supervisor started (PID $$)"
 
 # Idle-restart policy for worker-daemon tmux session.
@@ -149,6 +200,7 @@ idle_restart_worker_daemon() {
 
 while true; do
     idle_restart_worker_daemon
+    check_heartbeat_silence
 
     ensure_session "worker-daemon" \
         "cd $HANDLER && ./worker-daemon.sh 2>&1 | tee -a $HOME/.claude-fleet/logs/worker-daemon.log"
