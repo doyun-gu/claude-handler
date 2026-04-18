@@ -10,6 +10,35 @@
 # set -e causes silent crashes in daemons — we handle errors explicitly.
 set -uo pipefail
 
+# ─── Singleton guard ──────────────────────────────────────────────────────────
+# Refuse to start if another worker-daemon.sh is already running. Prevents the
+# orphan-daemon problem (multiple copies polling tasks.db simultaneously).
+# pgrep -P excludes our own process tree; we count matching PIDs that aren't
+# us or our parents.
+SINGLETON_PIDS=$(pgrep -f 'worker-daemon\.sh' 2>/dev/null | grep -v "^$$\$" | grep -v "^$PPID\$")
+if [[ -n "$SINGLETON_PIDS" ]]; then
+    # Allow our immediate child/parent chain (tee wrapper, tmux pane launcher);
+    # only reject if there's a daemon that isn't in our process ancestry.
+    OUR_ANCESTRY="$$ $PPID"
+    p="$PPID"
+    while [[ -n "$p" && "$p" != "1" && "$p" != "0" ]]; do
+        p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ')
+        [[ -n "$p" ]] && OUR_ANCESTRY="$OUR_ANCESTRY $p"
+    done
+    FOREIGN_DAEMON=""
+    for pid in $SINGLETON_PIDS; do
+        if ! grep -qw "$pid" <<<"$OUR_ANCESTRY"; then
+            FOREIGN_DAEMON="$pid"
+            break
+        fi
+    done
+    if [[ -n "$FOREIGN_DAEMON" ]]; then
+        echo "[daemon $(date +%H:%M:%S)] ERROR: another worker-daemon already running (PID $FOREIGN_DAEMON). Exiting."
+        echo "[daemon $(date +%H:%M:%S)] Run: kill $FOREIGN_DAEMON  — then restart this daemon."
+        exit 1
+    fi
+fi
+
 # ─── Configuration ────────────────────────────────────────────────────────────
 
 FLEET_DIR="$HOME/.claude-fleet"

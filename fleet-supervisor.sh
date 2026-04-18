@@ -75,7 +75,18 @@ log "Fleet supervisor started (PID $$)"
 # and file-handle leaks. Restart when: uptime > threshold AND no running
 # tasks AND no immediately-runnable queued tasks. Restart is safe because
 # ensure_session below will respawn the session on the next cycle.
+#
+# Guardrails (in order of evaluation):
+#   1. WORKER_MIN_UPTIME_SECS — hard floor. A fresh daemon is never killed
+#      before this uptime, regardless of how WORKER_IDLE_RESTART_SECS is set.
+#      Prevents misconfig or test-value overrides from flapping the daemon.
+#   2. WORKER_IDLE_RESTART_SECS — normal threshold (default 24h).
+#   3. RESTART_COOLDOWN_SECS — minimum wall-clock between two idle-restarts.
+#      Persisted to IDLE_RESTART_STATE_FILE so survives supervisor restarts.
 WORKER_IDLE_RESTART_SECS="${WORKER_IDLE_RESTART_SECS:-86400}"  # 24h
+WORKER_MIN_UPTIME_SECS="${WORKER_MIN_UPTIME_SECS:-900}"        # 15 min hard floor
+RESTART_COOLDOWN_SECS="${RESTART_COOLDOWN_SECS:-14400}"        # 4h cooldown
+IDLE_RESTART_STATE_FILE="$HOME/.claude-fleet/.idle-restart-last"
 
 idle_restart_worker_daemon() {
     tmux has-session -t worker-daemon 2>/dev/null || return 0
@@ -99,7 +110,23 @@ idle_restart_worker_daemon() {
         *) return 0 ;;
     esac
     uptime=$(( 10#$d * 86400 + 10#$h * 3600 + 10#$m * 60 + 10#$s ))
+
+    # Guardrail 1: hard minimum-uptime floor — never restart a fresh daemon.
+    (( uptime >= WORKER_MIN_UPTIME_SECS )) || return 0
+
+    # Guardrail 2: normal idle-restart threshold.
     (( uptime > WORKER_IDLE_RESTART_SECS )) || return 0
+
+    # Guardrail 3: cooldown since last idle-restart.
+    if [[ -f "$IDLE_RESTART_STATE_FILE" ]]; then
+        local last_restart now_ts since_last
+        last_restart=$(cat "$IDLE_RESTART_STATE_FILE" 2>/dev/null)
+        now_ts=$(date +%s)
+        since_last=$(( now_ts - ${last_restart:-0} ))
+        if (( since_last < RESTART_COOLDOWN_SECS )); then
+            return 0
+        fi
+    fi
 
     # Gate on task-db: only restart when fully idle.
     # grep -c always prints a number (including 0) so don't chain `|| echo 0` —
@@ -115,6 +142,7 @@ idle_restart_worker_daemon() {
     (( queued == 0 )) || return 0
 
     log "Worker-daemon uptime ${uptime}s exceeds ${WORKER_IDLE_RESTART_SECS}s and queue is idle — restarting"
+    date +%s > "$IDLE_RESTART_STATE_FILE"
     tmux kill-session -t worker-daemon 2>/dev/null
     # ensure_session on the next loop iteration will respawn it
 }
