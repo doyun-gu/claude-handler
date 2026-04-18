@@ -70,7 +70,40 @@ check_and_restart() {
 
 log "Fleet supervisor started (PID $$)"
 
+# Idle-restart policy for worker-daemon tmux session.
+# Long-running bash shells accumulate env drift, zombie background jobs,
+# and file-handle leaks. Restart when: uptime > threshold AND no running
+# tasks AND no immediately-runnable queued tasks. Restart is safe because
+# ensure_session below will respawn the session on the next cycle.
+WORKER_IDLE_RESTART_SECS="${WORKER_IDLE_RESTART_SECS:-86400}"  # 24h
+
+idle_restart_worker_daemon() {
+    tmux has-session -t worker-daemon 2>/dev/null || return 0
+
+    local pane_pid uptime
+    pane_pid=$(tmux list-panes -t worker-daemon -F '#{pane_pid}' 2>/dev/null | head -1)
+    [[ -n "$pane_pid" ]] || return 0
+    uptime=$(ps -o etimes= -p "$pane_pid" 2>/dev/null | tr -d ' ')
+    [[ "$uptime" =~ ^[0-9]+$ ]] || return 0
+    (( uptime > WORKER_IDLE_RESTART_SECS )) || return 0
+
+    # Gate on task-db: only restart when fully idle
+    local task_db="$HANDLER/task-db.py"
+    [[ -f "$task_db" ]] || return 0
+    local running queued
+    running=$(python3 "$task_db" list running 2>/dev/null | grep -cE '^[[:space:]]*[a-z0-9]' || echo 0)
+    queued=$(python3 "$task_db" list queued 2>/dev/null | grep -cE '^[[:space:]]*[a-z0-9]' || echo 0)
+    (( running == 0 )) || return 0
+    (( queued == 0 )) || return 0
+
+    log "Worker-daemon uptime ${uptime}s exceeds ${WORKER_IDLE_RESTART_SECS}s and queue is idle — restarting"
+    tmux kill-session -t worker-daemon 2>/dev/null
+    # ensure_session on the next loop iteration will respawn it
+}
+
 while true; do
+    idle_restart_worker_daemon
+
     ensure_session "worker-daemon" \
         "cd $HANDLER && ./worker-daemon.sh 2>&1 | tee -a $HOME/.claude-fleet/logs/worker-daemon.log"
 

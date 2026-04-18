@@ -1302,6 +1302,16 @@ Prefer keeping the branch's changes unless the base changes are clearly newer."
 run_task() {
     local task_file="$1"
 
+    # Per-task env hygiene: clear volatile vars leaked from the long-lived
+    # daemon shell or a prior task. run_task runs in a subshell via run_task_async,
+    # so these unsets are scoped to this task only.
+    # Keep HOME, PATH, SSH_*, WORKER_CLAUDE_BIN — those are infra.
+    local _leak
+    while IFS= read -r _leak; do
+        unset "$_leak" 2>/dev/null || true
+    done < <(compgen -v 2>/dev/null | awk '/^(ANTHROPIC_|TASK_)/ || (/^CLAUDE_/ && !/^CLAUDE_CODE_/)')
+    unset NO_COLOR CI FORCE_COLOR 2>/dev/null || true
+
     # Read task manifest — validate critical fields
     local task_id task_prompt project_path branch
     task_id=$(task_field "$task_file" id)
