@@ -19,12 +19,14 @@ send_email() {
     local subject="$1"
     local body="$2"
 
-    # Notification filter: only email for critical events
-    case "\$subject" in
+    # Notification filter: only email for critical events.
+    # (Previously written as "\$subject" which is literal in double quotes —
+    # the case never matched, suppressing every email.)
+    case "$subject" in
         *failed*|*FAILED*|*blocked*|*BLOCKED*|*Digest*|*digest*|*CRITICAL*)
             ;; # Allow
         *)
-            echo "[notify] Suppressed: \$subject"
+            echo "[notify] Suppressed: $subject"
             return 0
             ;;
     esac
