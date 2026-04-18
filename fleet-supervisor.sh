@@ -101,12 +101,16 @@ idle_restart_worker_daemon() {
     uptime=$(( 10#$d * 86400 + 10#$h * 3600 + 10#$m * 60 + 10#$s ))
     (( uptime > WORKER_IDLE_RESTART_SECS )) || return 0
 
-    # Gate on task-db: only restart when fully idle
+    # Gate on task-db: only restart when fully idle.
+    # grep -c always prints a number (including 0) so don't chain `|| echo 0` —
+    # that would append a second "0" and break the arithmetic test below.
     local task_db="$HANDLER/task-db.py"
     [[ -f "$task_db" ]] || return 0
     local running queued
-    running=$(python3 "$task_db" list running 2>/dev/null | grep -cE '^[[:space:]]*[a-z0-9]' || echo 0)
-    queued=$(python3 "$task_db" list queued 2>/dev/null | grep -cE '^[[:space:]]*[a-z0-9]' || echo 0)
+    running=$(python3 "$task_db" list running 2>/dev/null | grep -cE '^[[:space:]]*[a-z0-9]' || true)
+    queued=$(python3 "$task_db" list queued 2>/dev/null | grep -cE '^[[:space:]]*[a-z0-9]' || true)
+    running=${running:-0}
+    queued=${queued:-0}
     (( running == 0 )) || return 0
     (( queued == 0 )) || return 0
 

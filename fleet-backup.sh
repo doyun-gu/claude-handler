@@ -33,11 +33,14 @@ TRANSCRIPT_MAX_AGE_DAYS="${TRANSCRIPT_MAX_AGE_DAYS:-14}"
 prune_claude_transcripts() {
     [[ -d "$TRANSCRIPT_ROOT" ]] || return 0
 
-    # Skip if any task is currently running (transcript may be open)
+    # Skip if any task is currently running (transcript may be open).
+    # Count lines that look like a task row (alphanumeric leader) rather than
+    # `grep -c "^"` which would include blank lines and a header row.
     if [[ -f "$SCRIPT_DIR/task-db.py" ]]; then
         local running_count
-        running_count=$(python3 "$SCRIPT_DIR/task-db.py" list running 2>/dev/null | grep -c "^" || echo 0)
-        if (( running_count > 1 )); then  # header line counts as 1
+        running_count=$(python3 "$SCRIPT_DIR/task-db.py" list running 2>/dev/null | grep -cE '^[[:space:]]*[a-z0-9]' || true)
+        running_count=${running_count:-0}
+        if (( running_count > 0 )); then
             return 0
         fi
     fi
