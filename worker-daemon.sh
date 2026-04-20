@@ -72,6 +72,12 @@ DAEMON_START=$(date +%s)
 CYCLE_COUNT=0
 LAST_ERROR=""
 TASK_TIMEOUT="${TASK_TIMEOUT:-7200}"  # 2 hours in seconds (configurable via env)
+# Script-relative paths — defined empty here so every function that references
+# them (update_task_status, count_tasks, main loop) sees a bound value even
+# under `set -u`. Populated after SCRIPT_DIR resolves below.
+TASK_DB=""
+QM=""
+FILE_LOCK=""
 
 # ─── Colors & logging ────────────────────────────────────────────────────────
 
@@ -145,6 +151,12 @@ if [[ -z "$SCRIPT_DIR" || ! -d "$SCRIPT_DIR" ]]; then
     echo "FATAL: Cannot resolve script directory" >&2
     exit 1
 fi
+
+# Populate script-relative paths now that SCRIPT_DIR is known. See top-of-file
+# declarations; this must stay BEFORE any function call that references them.
+TASK_DB="$SCRIPT_DIR/task-db.py"
+QM="$SCRIPT_DIR/fleet-brain.py"
+FILE_LOCK="$SCRIPT_DIR/file-lock.py"
 
 # ─── Directories ──────────────────────────────────────────────────────────────
 
@@ -250,8 +262,8 @@ check_remote_worker() {
 
 # ─── Queue manager ────────────────────────────────────────────────────────────
 
-if [[ -f "$SCRIPT_DIR/fleet-brain.py" ]]; then
-    QM="$SCRIPT_DIR/fleet-brain.py"
+if [[ -f "$QM" ]]; then
+    # QM was populated above after SCRIPT_DIR resolution.
     log "Using fleet-brain.py"
 else
     log_error "D-002" "Queue manager not found (fleet-brain.py)"
@@ -273,9 +285,6 @@ task_field() {
     }
     echo "$result"
 }
-
-TASK_DB="$SCRIPT_DIR/task-db.py"
-FILE_LOCK="$SCRIPT_DIR/file-lock.py"
 
 count_tasks() {
     # Primary: SQLite
@@ -323,12 +332,15 @@ except Exception as e:
 " 2>>"$ERROR_LOG" || log_error "D-020" "JSON fallback also failed for $task_file"
     fi
 
-    # Update SQLite (primary source of truth)
-    if [[ -f "$TASK_DB" ]]; then
+    # Update SQLite (primary source of truth). Guard against $TASK_DB being
+    # empty under `set -u` — can happen if update_task_status runs before
+    # SCRIPT_DIR-resolution populates it (pre-fix this crashed at line 327).
+    local _tdb="${TASK_DB:-}"
+    if [[ -n "$_tdb" && -f "$_tdb" ]]; then
         task_id=$(task_field "$task_file" id "") 2>/dev/null
         if [[ -n "$task_id" ]]; then
             local db_err
-            db_err=$(python3 "$TASK_DB" status "$task_id" "$new_status" "$@" 2>&1)
+            db_err=$(python3 "$_tdb" status "$task_id" "$new_status" "$@" 2>&1)
             if [[ $? -ne 0 ]]; then
                 log_error "D-022" "task-db.py failed for $task_id -> $new_status: ${db_err:0:200}"
             fi
